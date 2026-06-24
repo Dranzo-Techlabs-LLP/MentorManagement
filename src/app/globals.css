@@ -1,0 +1,94 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --font-sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+}
+
+* {
+  -webkit-font-smoothing: antialiased;
+}
+
+body {
+  background: #f1f5f9;
+  color: #0f172a;
+}
+
+@layer components {
+  .card {
+    @apply rounded-2xl bg-white shadow-card border border-slate-100;
+  }
+  .card-pad {
+    @apply p-5;
+  }
+  .stat-card {
+    @apply card card-pad flex items-center justify-between;
+  }
+  .btn {
+    @apply inline-flex items-center justify-center gap-2 rounded-lg px-4 py-2 text-sm font-semibold transition focus:outline-none focus:ring-2 focus:ring-offset-1 disabled:opacity-50 disabled:pointer-events-none;
+  }
+  .btn-primary {
+    @apply btn bg-navy text-white hover:bg-navy-800 focus:ring-navy;
+  }
+  .btn-green {
+    @apply btn bg-leaf text-white hover:bg-leaf-600 focus:ring-leaf;
+  }
+  .btn-gold {
+    @apply btn bg-gold text-white hover:bg-gold-600 focus:ring-gold;
+  }
+  .btn-outline {
+    @apply btn border border-slate-300 bg-white text-slate-700 hover:bg-slate-50;
+  }
+  .btn-ghost {
+    @apply btn text-slate-600 hover:bg-slate-100;
+  }
+  .input {
+    @apply w-full rounded-lg border border-slate-300 px-3 py-2 text-sm text-slate-900 placeholder:text-slate-400 focus:border-navy focus:outline-none focus:ring-1 focus:ring-navy;
+  }
+  .label {
+    @apply mb-1 block text-sm font-medium text-slate-700;
+  }
+  .badge {
+    @apply inline-flex items-center gap-1 rounded-full px-2.5 py-0.5 text-xs font-medium;
+  }
+  .section-title {
+    @apply text-lg font-bold text-navy;
+  }
+  .table-th {
+    @apply px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-500;
+  }
+  .table-td {
+    @apply px-4 py-3 text-sm text-slate-700;
+  }
+}
+
+/* progress bar */
+.progress {
+  @apply h-2 w-full overflow-hidden rounded-full bg-slate-100;
+}
+.progress > span {
+  @apply block h-full rounded-full;
+}
+
+/* sidebar scrollbar */
+.thin-scroll::-webkit-scrollbar {
+  width: 6px;
+}
+.thin-scroll::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.18);
+  border-radius: 9999px;
+}
+
+@media print {
+  .no-print {
+    display: none !important;
+  }
+  body {
+    background: #fff;
+  }
+  .print-full {
+    box-shadow: none !important;
+    border: none !important;
+  }
+}

@@ -1,0 +1,495 @@
+"use server";
+
+import { revalidatePath } from "next/cache";
+import { prisma } from "./db";
+import { getSession, hashPassword } from "./auth";
+import { requireSession, requireRole } from "./guard";
+import { ageFromDob, ageCategory } from "./utils";
+import type { Prisma, AgeCategory } from "@prisma/client";
+
+type Result = { ok: boolean; error?: string; id?: string };
+
+// ---- local helpers (not exported) ----
+const s = (fd: FormData, k: string) => (fd.get(k)?.toString() || "").trim();
+const sn = (fd: FormData, k: string) => {
+  const v = s(fd, k);
+  return v ? v : null;
+};
+const num = (fd: FormData, k: string) => {
+  const v = s(fd, k);
+  return v ? Number(v) : null;
+};
+const date = (fd: FormData, k: string) => {
+  const v = s(fd, k);
+  return v ? new Date(v) : null;
+};
+
+function touch(...paths: string[]) {
+  for (const p of paths) revalidatePath(p);
+}
+
+async function notify(userId: string, title: string, message: string, link?: string, type = "info") {
+  if (!userId) return;
+  await prisma.notification.create({ data: { userId, title, message, link, type } });
+}
+
+async function log(action: string, entity: string, entityId?: string, meta?: Prisma.InputJsonValue) {
+  const sess = await getSession();
+  await prisma.auditLog.create({ data: { userId: sess?.userId, action, entity, entityId, meta } }).catch(() => {});
+}
+
+// ============================================================================
+// PUBLIC — parent application
+// ============================================================================
+export async function submitApplication(fd: FormData): Promise<Result> {
+  const parentName = s(fd, "parentName");
+  const parentEmail = s(fd, "parentEmail");
+  const parentPhone = s(fd, "parentPhone");
+  const studentName = s(fd, "studentName");
+  if (!parentName || !parentEmail || !parentPhone || !studentName)
+    return { ok: false, error: "Please fill all required fields." };
+
+  const app = await prisma.parentApplication.create({
+    data: {
+      parentName, parentEmail, parentPhone, studentName,
+      studentGender: sn(fd, "studentGender"),
+      studentDob: date(fd, "studentDob"),
+      institutionName: sn(fd, "institutionName"),
+      className: sn(fd, "className"),
+      message: sn(fd, "message"),
+    },
+  });
+  const admins = await prisma.user.findMany({ where: { role: "SUPER_ADMIN" }, select: { id: true } });
+  for (const a of admins)
+    await notify(a.id, "New parent application", `${parentName} applied for ${studentName}.`, "/admin/applications", "info");
+  touch("/admin/applications", "/admin");
+  return { ok: true, id: app.id };
+}
+
+// ============================================================================
+// APPLICATIONS — admin review
+// ============================================================================
+export async function approveApplication(fd: FormData): Promise<Result> {
+  await requireRole("SUPER_ADMIN", "CHIEF_MENTOR");
+  const id = s(fd, "id");
+  const app = await prisma.parentApplication.findUnique({ where: { id } });
+  if (!app) return { ok: false, error: "Application not found" };
+
+  const mentorId = sn(fd, "mentorId");
+  const institutionId = sn(fd, "institutionId");
+
+  // find or create parent user
+  let parent = await prisma.user.findUnique({ where: { email: app.parentEmail.toLowerCase() } });
+  if (!parent) {
+    parent = await prisma.user.create({
+      data: {
+        name: app.parentName, email: app.parentEmail.toLowerCase(),
+        passwordHash: await hashPassword("Elevate@123"), role: "PARENT", phone: app.parentPhone,
+      },
+    });
+  }
+  const age = ageFromDob(app.studentDob);
+  const student = await prisma.student.create({
+    data: {
+      fullName: app.studentName, gender: app.studentGender, dob: app.studentDob,
+      ageCategory: ageCategory(age) as Prisma.StudentCreateInput["ageCategory"],
+      className: app.className, parentId: parent.id, mentorId, institutionId, status: "ACTIVE",
+    },
+  });
+  await prisma.parentApplication.update({
+    where: { id }, data: { status: "APPROVED", reviewedById: (await getSession())!.userId, createdStudentId: student.id },
+  });
+  await notify(parent.id, "Application approved", `${app.studentName} has been enrolled in SLEP.`, "/parent");
+  await log("APPROVE", "ParentApplication", id);
+  touch("/admin/applications", "/admin/students", "/admin", "/parent");
+  return { ok: true, id: student.id };
+}
+
+export async function rejectApplication(fd: FormData): Promise<Result> {
+  await requireRole("SUPER_ADMIN", "CHIEF_MENTOR");
+  const id = s(fd, "id");
+  await prisma.parentApplication.update({
+    where: { id }, data: { status: "REJECTED", reviewNote: sn(fd, "reviewNote"), reviewedById: (await getSession())!.userId },
+  });
+  await log("REJECT", "ParentApplication", id);
+  touch("/admin/applications");
+  return { ok: true };
+}
+
+// ============================================================================
+// STUDENTS
+// ============================================================================
+export async function saveStudent(fd: FormData): Promise<Result> {
+  await requireRole("SUPER_ADMIN", "CHIEF_MENTOR", "SUPERVISOR");
+  const id = sn(fd, "id");
+  const dob = date(fd, "dob");
+  const data = {
+    fullName: s(fd, "fullName"), gender: sn(fd, "gender"), dob,
+    ageCategory: ageCategory(ageFromDob(dob)) as AgeCategory | null,
+    email: sn(fd, "email"), phone: sn(fd, "phone"), className: sn(fd, "className"),
+    address: sn(fd, "address"), interests: sn(fd, "interests"), talents: sn(fd, "talents"),
+    institutionId: sn(fd, "institutionId"), mentorId: sn(fd, "mentorId"), parentId: sn(fd, "parentId"),
+  };
+  let res;
+  if (id) res = await prisma.student.update({ where: { id }, data });
+  else res = await prisma.student.create({ data });
+  await log(id ? "UPDATE" : "CREATE", "Student", res.id);
+  touch("/admin/students", `/admin/students/${res.id}`, "/admin", "/mentor/mentees");
+  return { ok: true, id: res.id };
+}
+
+// ============================================================================
+// USERS (staff / parents)
+// ============================================================================
+export async function saveUser(fd: FormData): Promise<Result> {
+  await requireRole("SUPER_ADMIN");
+  const id = sn(fd, "id");
+  const email = s(fd, "email").toLowerCase();
+  const base = {
+    name: s(fd, "name"), email, role: s(fd, "role") as Prisma.UserCreateInput["role"],
+    phone: sn(fd, "phone"), title: sn(fd, "title"), institutionId: sn(fd, "institutionId"),
+    managerId: sn(fd, "managerId"),
+  };
+  if (id) {
+    await prisma.user.update({ where: { id }, data: base });
+    touch("/admin/users", "/admin/mentors");
+    return { ok: true, id };
+  }
+  const exists = await prisma.user.findUnique({ where: { email } });
+  if (exists) return { ok: false, error: "Email already in use" };
+  const pwd = s(fd, "password") || "Elevate@123";
+  const user = await prisma.user.create({ data: { ...base, passwordHash: await hashPassword(pwd) } });
+  await log("CREATE", "User", user.id, { role: base.role });
+  touch("/admin/users", "/admin/mentors");
+  return { ok: true, id: user.id };
+}
+
+export async function setUserStatus(fd: FormData): Promise<Result> {
+  await requireRole("SUPER_ADMIN");
+  const id = s(fd, "id");
+  await prisma.user.update({ where: { id }, data: { status: s(fd, "status") as Prisma.UserUpdateInput["status"] } });
+  touch("/admin/users");
+  return { ok: true };
+}
+
+// ============================================================================
+// INSTITUTIONS
+// ============================================================================
+export async function saveInstitution(fd: FormData): Promise<Result> {
+  await requireRole("SUPER_ADMIN");
+  const id = sn(fd, "id");
+  const data = {
+    name: s(fd, "name"), type: s(fd, "type") as Prisma.InstitutionCreateInput["type"],
+    city: sn(fd, "city"), address: sn(fd, "address"), contactName: sn(fd, "contactName"),
+    contactPhone: sn(fd, "contactPhone"), contactEmail: sn(fd, "contactEmail"),
+  };
+  const res = id ? await prisma.institution.update({ where: { id }, data }) : await prisma.institution.create({ data });
+  touch("/admin/institutions");
+  return { ok: true, id: res.id };
+}
+
+// ============================================================================
+// SESSIONS
+// ============================================================================
+export async function createSession(fd: FormData): Promise<Result> {
+  const sess = await requireRole("MENTOR", "SUPERVISOR", "CHIEF_MENTOR", "SUPER_ADMIN");
+  const studentIds = fd.getAll("studentIds").map((x) => x.toString()).filter(Boolean);
+  const session = await prisma.mentoringSession.create({
+    data: {
+      mentorId: sn(fd, "mentorId") || sess.userId,
+      type: s(fd, "type") as Prisma.MentoringSessionCreateInput["type"],
+      title: s(fd, "title") || "Mentoring Session",
+      topic: sn(fd, "topic"), agenda: sn(fd, "agenda"),
+      scheduledAt: date(fd, "scheduledAt") || new Date(),
+      durationMins: num(fd, "durationMins") || 45,
+      meetingLink: sn(fd, "meetingLink"), location: sn(fd, "location"),
+      createdById: sess.userId,
+      attendance: { create: studentIds.map((studentId) => ({ studentId })) },
+    },
+  });
+  await log("CREATE", "MentoringSession", session.id);
+  touch("/mentor/sessions", "/mentor", "/admin/sessions", "/supervisor/sessions");
+  return { ok: true, id: session.id };
+}
+
+export async function completeSession(fd: FormData): Promise<Result> {
+  await requireRole("MENTOR", "SUPERVISOR", "CHIEF_MENTOR", "SUPER_ADMIN");
+  const id = s(fd, "id");
+  await prisma.mentoringSession.update({
+    where: { id },
+    data: {
+      status: "COMPLETED", observations: sn(fd, "observations"),
+      actionPoints: sn(fd, "actionPoints"), parentNote: sn(fd, "parentNote"),
+    },
+  });
+  // attendance updates: keys like att_<studentId>=PRESENT
+  for (const [k, v] of fd.entries()) {
+    if (k.startsWith("att_")) {
+      const studentId = k.slice(4);
+      await prisma.sessionAttendance.updateMany({
+        where: { sessionId: id, studentId }, data: { status: v.toString() as Prisma.SessionAttendanceUpdateInput["status"] },
+      });
+    }
+  }
+  const followUp = sn(fd, "followUp");
+  if (followUp) {
+    const sess = await prisma.mentoringSession.findUnique({ where: { id }, include: { attendance: true } });
+    await prisma.task.create({
+      data: { title: followUp, sessionId: id, studentId: sess?.attendance[0]?.studentId, status: "PENDING", createdById: (await getSession())!.userId },
+    });
+  }
+  await log("COMPLETE", "MentoringSession", id);
+  touch("/mentor/sessions", `/mentor/sessions/${id}`, "/mentor");
+  return { ok: true };
+}
+
+// ============================================================================
+// REPORTS
+// ============================================================================
+export async function createReport(fd: FormData): Promise<Result> {
+  const sess = await requireRole("MENTOR", "SUPERVISOR", "CHIEF_MENTOR", "SUPER_ADMIN");
+  const report = await prisma.progressReport.create({
+    data: {
+      studentId: s(fd, "studentId"), title: s(fd, "title") || "Progress Report",
+      type: (s(fd, "type") || "MONTHLY") as Prisma.ProgressReportCreateInput["type"],
+      period: sn(fd, "period"), summary: sn(fd, "summary"),
+      content: {
+        academic: num(fd, "academic") ?? 0, leadership: num(fd, "leadership") ?? 0,
+        character: num(fd, "character") ?? 0, lifeSkills: num(fd, "lifeSkills") ?? 0,
+        spiritual: num(fd, "spiritual") ?? 0,
+      },
+      status: s(fd, "status") === "DRAFT" ? "DRAFT" : "PENDING", submittedById: sess.userId,
+    },
+  });
+  await log("CREATE", "ProgressReport", report.id);
+  touch("/mentor/reports", "/supervisor/reports", "/admin/reports", "/mentor");
+  return { ok: true, id: report.id };
+}
+
+export async function reviewReport(fd: FormData): Promise<Result> {
+  const sess = await requireRole("SUPERVISOR", "CHIEF_MENTOR", "SUPER_ADMIN");
+  const id = s(fd, "id");
+  await prisma.progressReport.update({ where: { id }, data: { status: "REVIEWED", reviewedById: sess.userId } });
+  await log("REVIEW", "ProgressReport", id);
+  touch("/supervisor/reports", "/mentor/reports", "/admin/reports");
+  return { ok: true };
+}
+
+export async function shareReport(fd: FormData): Promise<Result> {
+  await requireRole("MENTOR", "SUPERVISOR", "CHIEF_MENTOR", "SUPER_ADMIN");
+  const id = s(fd, "id");
+  const report = await prisma.progressReport.update({
+    where: { id }, data: { sharedWithParent: true, status: "PUBLISHED" },
+    include: { student: { include: { parent: true } } },
+  });
+  if (report.student.parent)
+    await notify(report.student.parent.id, "New progress report", `${report.student.fullName}'s ${report.period ?? ""} report is available.`, "/parent/reports");
+  touch("/parent/reports", "/mentor/reports");
+  return { ok: true };
+}
+
+// ============================================================================
+// COMMUNICATION
+// ============================================================================
+export async function sendMessage(fd: FormData): Promise<Result> {
+  const sess = await requireSession();
+  const recipientId = s(fd, "recipientId");
+  if (!recipientId) return { ok: false, error: "Select a recipient" };
+  const msg = await prisma.message.create({
+    data: {
+      senderId: sess.userId, recipientId, subject: sn(fd, "subject"),
+      body: s(fd, "body"), relatedStudentId: sn(fd, "relatedStudentId"),
+    },
+  });
+  await notify(recipientId, "New message", `${sess.name}: ${s(fd, "subject") || s(fd, "body").slice(0, 40)}`, "/");
+  touch("/mentor/messages", "/parent/messages", "/supervisor/messages", "/admin/messages", "/chief/messages", "/student/messages");
+  return { ok: true, id: msg.id };
+}
+
+export async function markMessageRead(fd: FormData): Promise<Result> {
+  const sess = await requireSession();
+  await prisma.message.updateMany({ where: { id: s(fd, "id"), recipientId: sess.userId }, data: { isRead: true } });
+  return { ok: true };
+}
+
+export async function createAnnouncement(fd: FormData): Promise<Result> {
+  const sess = await requireRole("SUPER_ADMIN", "CHIEF_MENTOR", "SUPERVISOR");
+  const a = await prisma.announcement.create({
+    data: {
+      authorId: sess.userId, title: s(fd, "title"), body: s(fd, "body"),
+      audience: (s(fd, "audience") || "ALL") as Prisma.AnnouncementCreateInput["audience"],
+      pinned: fd.get("pinned") === "on",
+    },
+  });
+  touch("/admin/announcements", "/chief/announcements", "/mentor", "/parent", "/student");
+  return { ok: true, id: a.id };
+}
+
+// ============================================================================
+// FEEDBACK
+// ============================================================================
+export async function submitFeedback(fd: FormData): Promise<Result> {
+  const sess = await requireSession();
+  const f = await prisma.feedback.create({
+    data: {
+      fromUserId: sess.userId, studentId: sn(fd, "studentId"), mentorId: sn(fd, "mentorId"),
+      rating: num(fd, "rating"), comment: s(fd, "comment"),
+    },
+  });
+  touch("/parent/feedback", "/supervisor/feedback", "/mentor");
+  return { ok: true, id: f.id };
+}
+
+export async function markFeedbackReviewed(fd: FormData): Promise<Result> {
+  await requireRole("SUPERVISOR", "CHIEF_MENTOR", "SUPER_ADMIN", "MENTOR");
+  await prisma.feedback.update({ where: { id: s(fd, "id") }, data: { status: "REVIEWED" } });
+  touch("/supervisor/feedback");
+  return { ok: true };
+}
+
+// ============================================================================
+// TASKS & GOALS
+// ============================================================================
+export async function createTask(fd: FormData): Promise<Result> {
+  const sess = await requireSession();
+  const t = await prisma.task.create({
+    data: {
+      title: s(fd, "title"), description: sn(fd, "description"), studentId: sn(fd, "studentId"),
+      assignedToId: sn(fd, "assignedToId"), dueDate: date(fd, "dueDate"), createdById: sess.userId,
+    },
+  });
+  touch("/mentor/tasks", "/student/tasks", "/mentor");
+  return { ok: true, id: t.id };
+}
+
+export async function toggleTask(fd: FormData): Promise<Result> {
+  await requireSession();
+  const id = s(fd, "id");
+  const t = await prisma.task.findUnique({ where: { id } });
+  await prisma.task.update({ where: { id }, data: { status: t?.status === "DONE" ? "PENDING" : "DONE" } });
+  touch("/mentor/tasks", "/student/tasks");
+  return { ok: true };
+}
+
+export async function createGoal(fd: FormData): Promise<Result> {
+  const sess = await requireSession();
+  const g = await prisma.goal.create({
+    data: {
+      studentId: s(fd, "studentId"), title: s(fd, "title"), description: sn(fd, "description"),
+      category: (sn(fd, "category") || null) as Prisma.GoalCreateInput["category"],
+      targetDate: date(fd, "targetDate"), progress: num(fd, "progress") ?? 0, createdById: sess.userId,
+      status: (num(fd, "progress") ?? 0) >= 100 ? "COMPLETED" : "IN_PROGRESS",
+    },
+  });
+  touch("/student/goals", "/mentor", `/admin/students/${s(fd, "studentId")}`);
+  return { ok: true, id: g.id };
+}
+
+export async function updateGoalProgress(fd: FormData): Promise<Result> {
+  await requireSession();
+  const id = s(fd, "id");
+  const progress = num(fd, "progress") ?? 0;
+  await prisma.goal.update({
+    where: { id },
+    data: { progress, status: progress >= 100 ? "COMPLETED" : progress > 0 ? "IN_PROGRESS" : "NOT_STARTED" },
+  });
+  touch("/student/goals", "/mentor");
+  return { ok: true };
+}
+
+// ============================================================================
+// GROWTH / ACHIEVEMENTS / DOCUMENTS
+// ============================================================================
+export async function addGrowthRecord(fd: FormData): Promise<Result> {
+  const sess = await requireRole("MENTOR", "SUPERVISOR", "CHIEF_MENTOR", "SUPER_ADMIN");
+  await prisma.growthRecord.create({
+    data: {
+      studentId: s(fd, "studentId"), category: s(fd, "category") as Prisma.GrowthRecordCreateInput["category"],
+      title: s(fd, "title"), note: sn(fd, "note"), score: num(fd, "score"), recordedById: sess.userId,
+    },
+  });
+  touch(`/admin/students/${s(fd, "studentId")}`, "/mentor");
+  return { ok: true };
+}
+
+export async function addAchievement(fd: FormData): Promise<Result> {
+  const sess = await requireRole("MENTOR", "SUPERVISOR", "CHIEF_MENTOR", "SUPER_ADMIN");
+  await prisma.achievement.create({
+    data: { studentId: s(fd, "studentId"), title: s(fd, "title"), description: sn(fd, "description"), category: sn(fd, "category"), addedById: sess.userId },
+  });
+  touch("/student/achievements", `/admin/students/${s(fd, "studentId")}`);
+  return { ok: true };
+}
+
+export async function addDocument(fd: FormData): Promise<Result> {
+  const sess = await requireSession();
+  await prisma.studentDocument.create({
+    data: {
+      studentId: s(fd, "studentId"), type: (s(fd, "type") || "OTHER") as Prisma.StudentDocumentCreateInput["type"],
+      title: s(fd, "title"), fileName: sn(fd, "fileName"), fileUrl: s(fd, "fileUrl") || "#", uploadedById: sess.userId,
+    },
+  });
+  touch(`/admin/students/${s(fd, "studentId")}`, "/parent/documents");
+  return { ok: true };
+}
+
+// ============================================================================
+// ASSESSMENTS
+// ============================================================================
+export async function assignAssessment(fd: FormData): Promise<Result> {
+  const sess = await requireRole("MENTOR", "SUPERVISOR", "CHIEF_MENTOR", "SUPER_ADMIN");
+  const a = await prisma.studentAssessment.create({
+    data: { studentId: s(fd, "studentId"), templateId: s(fd, "templateId"), assignedById: sess.userId },
+  });
+  touch("/mentor/assessments", "/student/assessments", "/admin/assessments");
+  return { ok: true, id: a.id };
+}
+
+export async function submitAssessment(fd: FormData): Promise<Result> {
+  await requireSession();
+  const id = s(fd, "id");
+  const inst = await prisma.studentAssessment.findUnique({ where: { id }, include: { template: true } });
+  if (!inst) return { ok: false, error: "Not found" };
+  const questions = (inst.template.questions as { id: string; options: { value: number; score: number; trait?: string }[] }[]) || [];
+  const answers: Record<string, number> = {};
+  const traitScores: Record<string, { sum: number; count: number }> = {};
+  let total = 0, max = 0;
+  for (const q of questions) {
+    const val = num(fd, `q_${q.id}`);
+    if (val == null) continue;
+    answers[q.id] = val;
+    const opt = q.options.find((o) => o.value === val);
+    const score = opt?.score ?? val;
+    total += score;
+    max += Math.max(...q.options.map((o) => o.score));
+    const trait = opt?.trait;
+    if (trait) {
+      traitScores[trait] = traitScores[trait] || { sum: 0, count: 0 };
+      traitScores[trait].sum += score;
+      traitScores[trait].count += 1;
+    }
+  }
+  const interpretation: Record<string, number> = {};
+  for (const [t, v] of Object.entries(traitScores)) interpretation[t] = Math.round((v.sum / (v.count * 5)) * 100);
+  const pct = max ? Math.round((total / max) * 100) : 0;
+  await prisma.studentAssessment.update({
+    where: { id },
+    data: {
+      status: "COMPLETED", answers, score: pct, maxScore: 100, interpretation,
+      resultSummary: `Overall aptitude score ${pct}%. Strongest area: ${Object.entries(interpretation).sort((a, b) => b[1] - a[1])[0]?.[0] ?? "—"}.`,
+      completedAt: new Date(),
+    },
+  });
+  touch("/student/assessments", "/mentor/assessments", "/parent/assessments");
+  return { ok: true, id };
+}
+
+// ============================================================================
+// NOTIFICATIONS
+// ============================================================================
+export async function markAllNotificationsRead(): Promise<Result> {
+  const sess = await requireSession();
+  await prisma.notification.updateMany({ where: { userId: sess.userId, isRead: false }, data: { isRead: true } });
+  touch("/");
+  return { ok: true };
+}

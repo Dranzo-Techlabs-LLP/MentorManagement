@@ -1,0 +1,607 @@
+// Elevate U Mentoring Management Portal — data model
+// NDHR Global Solutions / SLEP — Student Leadership Empowerment Program
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "mysql"
+  url      = env("DATABASE_URL")
+}
+
+// ----------------------------------------------------------------------------
+// Enums
+// ----------------------------------------------------------------------------
+
+enum Role {
+  SUPER_ADMIN
+  CHIEF_MENTOR
+  SUPERVISOR
+  MENTOR
+  PARENT
+  STUDENT
+}
+
+enum UserStatus {
+  ACTIVE
+  INACTIVE
+  PENDING
+}
+
+enum InstitutionType {
+  SCHOOL
+  MAHALL
+  COLLEGE
+  NDHR_CLIENT
+  OTHER
+}
+
+enum AgeCategory {
+  LEVEL_1 // 10-12 Self Discovery
+  LEVEL_2 // 13-15 Talent Discovery
+  LEVEL_3 // 16-18 Career Aptitude
+}
+
+enum StudentStatus {
+  PENDING
+  ACTIVE
+  INACTIVE
+  GRADUATED
+}
+
+enum ApplicationStatus {
+  PENDING
+  APPROVED
+  REJECTED
+}
+
+enum DocumentType {
+  PHOTO
+  ID_PROOF
+  MARKSHEET
+  CONSENT_FORM
+  CERTIFICATE
+  SESSION_NOTE
+  ASSESSMENT_REPORT
+  OTHER
+}
+
+enum GrowthCategory {
+  ACADEMIC
+  PERSONALITY
+  LIFE_SKILLS
+  MORAL_VALUE
+  HEALTH_WELLBEING
+  CAREER
+}
+
+enum GoalStatus {
+  NOT_STARTED
+  IN_PROGRESS
+  COMPLETED
+}
+
+enum TaskStatus {
+  PENDING
+  IN_PROGRESS
+  DONE
+}
+
+enum AssessmentLevel {
+  LEVEL_1
+  LEVEL_2
+  LEVEL_3
+  GENERAL
+}
+
+enum AssessmentCategory {
+  SELF_DISCOVERY
+  TALENT_DISCOVERY
+  CAREER_APTITUDE
+  MULTIPLE_INTELLIGENCE
+  LEARNING_STYLE
+  PERSONALITY
+  STRENGTH
+  LEADERSHIP
+}
+
+enum AssessmentStatus {
+  ASSIGNED
+  IN_PROGRESS
+  COMPLETED
+}
+
+enum SessionType {
+  ONLINE
+  OFFLINE
+  REVIEW
+}
+
+enum SessionStatus {
+  SCHEDULED
+  COMPLETED
+  CANCELLED
+  MISSED
+}
+
+enum AttendanceStatus {
+  PRESENT
+  ABSENT
+  LATE
+  EXCUSED
+}
+
+enum Audience {
+  ALL
+  MENTORS
+  SUPERVISORS
+  CHIEF_MENTORS
+  PARENTS
+  STUDENTS
+  INSTITUTION
+}
+
+enum FeedbackStatus {
+  NEW
+  REVIEWED
+}
+
+enum ReportType {
+  MONTHLY
+  QUARTERLY
+  ANNUAL
+  ASSESSMENT
+  SESSION
+}
+
+enum ReportStatus {
+  DRAFT
+  PENDING
+  REVIEWED
+  PUBLISHED
+}
+
+// ----------------------------------------------------------------------------
+// Core
+// ----------------------------------------------------------------------------
+
+model Institution {
+  id        String          @id @default(cuid())
+  name      String
+  type      InstitutionType @default(SCHOOL)
+  code      String?         @unique
+  address   String?         @db.Text
+  city      String?
+  contactName String?
+  contactPhone String?
+  contactEmail String?
+  isActive  Boolean         @default(true)
+  createdAt DateTime        @default(now())
+  updatedAt DateTime        @updatedAt
+
+  users    User[]
+  students Student[]
+  announcements Announcement[]
+}
+
+model User {
+  id           String     @id @default(cuid())
+  name         String
+  email        String     @unique
+  passwordHash String
+  role         Role
+  status       UserStatus @default(ACTIVE)
+  phone        String?
+  avatar       String?
+  title        String? // e.g. "Dr.", designation
+  bio          String?    @db.Text
+
+  institution   Institution? @relation(fields: [institutionId], references: [id])
+  institutionId String?
+
+  // reporting chain: mentor -> supervisor -> chief mentor
+  manager   User?   @relation("Reports", fields: [managerId], references: [id])
+  managerId String?
+  reports   User[]  @relation("Reports")
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  lastLogin DateTime?
+
+  // back-relations
+  studentsAsParent     Student[]           @relation("StudentParent")
+  studentsAsMentor     Student[]           @relation("StudentMentor")
+  studentLogin         Student?            @relation("StudentLogin")
+  reviewedApplications ParentApplication[] @relation("AppReviewer")
+  uploadedDocuments    StudentDocument[]   @relation("DocUploader")
+  growthRecords        GrowthRecord[]      @relation("GrowthRecorder")
+  createdGoals         Goal[]              @relation("GoalCreator")
+  assignedTasks        Task[]              @relation("TaskAssignee")
+  createdTasks         Task[]              @relation("TaskCreator")
+  createdTemplates     AssessmentTemplate[] @relation("TemplateCreator")
+  assignedAssessments  StudentAssessment[] @relation("AssessmentAssigner")
+  mentoredSessions     MentoringSession[]  @relation("SessionMentor")
+  createdSessions      MentoringSession[]  @relation("SessionCreator")
+  sentMessages         Message[]           @relation("MsgSender")
+  receivedMessages     Message[]           @relation("MsgRecipient")
+  givenFeedback        Feedback[]          @relation("FeedbackFrom")
+  mentorFeedback       Feedback[]          @relation("FeedbackMentor")
+  submittedReports     ProgressReport[]    @relation("ReportSubmitter")
+  reviewedReports      ProgressReport[]    @relation("ReportReviewer")
+  addedAchievements    Achievement[]       @relation("AchievementAdder")
+  announcements        Announcement[]      @relation("AnnouncementAuthor")
+  notifications        Notification[]
+  auditLogs            AuditLog[]
+
+  @@index([role])
+  @@index([institutionId])
+  @@index([managerId])
+}
+
+model Student {
+  id            String        @id @default(cuid())
+  fullName      String
+  gender        String?
+  dob           DateTime?
+  ageCategory   AgeCategory?
+  email         String?
+  phone         String?
+  address       String?       @db.Text
+  city          String?
+  photo         String?
+  bloodGroup    String?
+  className     String? // grade / class
+  rollNo        String?
+  interests     String?       @db.Text
+  talents       String?       @db.Text
+  notes         String?       @db.Text
+  status        StudentStatus @default(ACTIVE)
+  admissionDate DateTime      @default(now())
+
+  institution   Institution? @relation(fields: [institutionId], references: [id])
+  institutionId String?
+
+  parent     User?   @relation("StudentParent", fields: [parentId], references: [id])
+  parentId   String?
+
+  mentor     User?   @relation("StudentMentor", fields: [mentorId], references: [id])
+  mentorId   String?
+
+  loginUser  User?   @relation("StudentLogin", fields: [userId], references: [id])
+  userId     String? @unique
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  documents     StudentDocument[]
+  growthRecords GrowthRecord[]
+  goals         Goal[]
+  tasks         Task[]
+  assessments   StudentAssessment[]
+  attendance    SessionAttendance[]
+  reports       ProgressReport[]
+  achievements  Achievement[]
+  feedback      Feedback[]
+
+  @@index([mentorId])
+  @@index([parentId])
+  @@index([institutionId])
+  @@index([status])
+}
+
+model ParentApplication {
+  id              String            @id @default(cuid())
+  parentName      String
+  parentEmail     String
+  parentPhone     String
+  studentName     String
+  studentDob      DateTime?
+  studentGender   String?
+  institutionName String?
+  className       String?
+  message         String?           @db.Text
+  status          ApplicationStatus @default(PENDING)
+  reviewNote      String?           @db.Text
+  reviewedBy      User?             @relation("AppReviewer", fields: [reviewedById], references: [id])
+  reviewedById    String?
+  createdStudentId String?
+  createdAt       DateTime          @default(now())
+  updatedAt       DateTime          @updatedAt
+
+  @@index([status])
+}
+
+model StudentDocument {
+  id           String       @id @default(cuid())
+  student      Student      @relation(fields: [studentId], references: [id], onDelete: Cascade)
+  studentId    String
+  type         DocumentType @default(OTHER)
+  title        String
+  fileName     String?
+  fileUrl      String       @db.Text
+  mimeType     String?
+  uploadedBy   User?        @relation("DocUploader", fields: [uploadedById], references: [id])
+  uploadedById String?
+  createdAt    DateTime     @default(now())
+
+  @@index([studentId])
+}
+
+model GrowthRecord {
+  id           String         @id @default(cuid())
+  student      Student        @relation(fields: [studentId], references: [id], onDelete: Cascade)
+  studentId    String
+  category     GrowthCategory
+  title        String
+  note         String?        @db.Text
+  score        Int? // 0-100
+  date         DateTime       @default(now())
+  recordedBy   User?          @relation("GrowthRecorder", fields: [recordedById], references: [id])
+  recordedById String?
+  createdAt    DateTime       @default(now())
+
+  @@index([studentId])
+  @@index([category])
+}
+
+model Goal {
+  id          String     @id @default(cuid())
+  student     Student    @relation(fields: [studentId], references: [id], onDelete: Cascade)
+  studentId   String
+  title       String
+  description String?    @db.Text
+  category    GrowthCategory?
+  targetDate  DateTime?
+  progress    Int        @default(0) // 0-100
+  status      GoalStatus @default(NOT_STARTED)
+  createdBy   User?      @relation("GoalCreator", fields: [createdById], references: [id])
+  createdById String?
+  createdAt   DateTime   @default(now())
+  updatedAt   DateTime   @updatedAt
+
+  @@index([studentId])
+}
+
+model Task {
+  id          String     @id @default(cuid())
+  title       String
+  description String?    @db.Text
+  student     Student?   @relation(fields: [studentId], references: [id])
+  studentId   String?
+  assignedTo  User?      @relation("TaskAssignee", fields: [assignedToId], references: [id])
+  assignedToId String?
+  dueDate     DateTime?
+  status      TaskStatus @default(PENDING)
+  priority    String?    @default("normal")
+  session     MentoringSession? @relation(fields: [sessionId], references: [id])
+  sessionId   String?
+  createdBy   User?      @relation("TaskCreator", fields: [createdById], references: [id])
+  createdById String?
+  createdAt   DateTime   @default(now())
+  updatedAt   DateTime   @updatedAt
+
+  @@index([assignedToId])
+  @@index([studentId])
+  @@index([status])
+}
+
+// ----------------------------------------------------------------------------
+// Assessment engine
+// ----------------------------------------------------------------------------
+
+model AssessmentTemplate {
+  id           String             @id @default(cuid())
+  title        String
+  description  String?            @db.Text
+  level        AssessmentLevel    @default(GENERAL)
+  category     AssessmentCategory
+  ageMin       Int?
+  ageMax       Int?
+  durationMins Int?
+  questions    Json // [{ id, text, type, options:[{label,value,score,trait}] }]
+  scoring      Json? // interpretation bands / trait map
+  isActive     Boolean            @default(true)
+  createdBy    User?              @relation("TemplateCreator", fields: [createdById], references: [id])
+  createdById  String?
+  createdAt    DateTime           @default(now())
+  updatedAt    DateTime           @updatedAt
+
+  instances StudentAssessment[]
+
+  @@index([category])
+  @@index([level])
+}
+
+model StudentAssessment {
+  id              String           @id @default(cuid())
+  student         Student          @relation(fields: [studentId], references: [id], onDelete: Cascade)
+  studentId       String
+  template        AssessmentTemplate @relation(fields: [templateId], references: [id])
+  templateId      String
+  status          AssessmentStatus @default(ASSIGNED)
+  answers         Json?
+  score           Int?
+  maxScore        Int?
+  resultSummary   String?          @db.Text
+  interpretation  Json? // per-trait/intelligence scores
+  recommendations String?          @db.Text
+  assignedBy      User?            @relation("AssessmentAssigner", fields: [assignedById], references: [id])
+  assignedById    String?
+  completedAt     DateTime?
+  createdAt       DateTime         @default(now())
+  updatedAt       DateTime         @updatedAt
+
+  @@index([studentId])
+  @@index([templateId])
+  @@index([status])
+}
+
+// ----------------------------------------------------------------------------
+// Sessions
+// ----------------------------------------------------------------------------
+
+model MentoringSession {
+  id           String        @id @default(cuid())
+  mentor       User          @relation("SessionMentor", fields: [mentorId], references: [id])
+  mentorId     String
+  type         SessionType   @default(ONLINE)
+  title        String
+  topic        String?
+  agenda       String?       @db.Text
+  scheduledAt  DateTime
+  durationMins Int?          @default(45)
+  meetingLink  String?
+  location     String?
+  status       SessionStatus @default(SCHEDULED)
+  observations String?       @db.Text
+  actionPoints String?       @db.Text
+  parentNote   String?       @db.Text
+  createdBy    User?         @relation("SessionCreator", fields: [createdById], references: [id])
+  createdById  String?
+  createdAt    DateTime      @default(now())
+  updatedAt    DateTime      @updatedAt
+
+  attendance SessionAttendance[]
+  tasks      Task[]
+
+  @@index([mentorId])
+  @@index([scheduledAt])
+  @@index([status])
+}
+
+model SessionAttendance {
+  id        String           @id @default(cuid())
+  session   MentoringSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  sessionId String
+  student   Student          @relation(fields: [studentId], references: [id], onDelete: Cascade)
+  studentId String
+  status    AttendanceStatus @default(PRESENT)
+  note      String?
+
+  @@unique([sessionId, studentId])
+  @@index([studentId])
+}
+
+// ----------------------------------------------------------------------------
+// Communication
+// ----------------------------------------------------------------------------
+
+model Message {
+  id          String   @id @default(cuid())
+  sender      User     @relation("MsgSender", fields: [senderId], references: [id])
+  senderId    String
+  recipient   User     @relation("MsgRecipient", fields: [recipientId], references: [id])
+  recipientId String
+  subject     String?
+  body        String   @db.Text
+  isRead      Boolean  @default(false)
+  threadId    String?
+  relatedStudentId String?
+  createdAt   DateTime @default(now())
+
+  @@index([recipientId, isRead])
+  @@index([senderId])
+}
+
+model Announcement {
+  id            String       @id @default(cuid())
+  author        User?        @relation("AnnouncementAuthor", fields: [authorId], references: [id])
+  authorId      String?
+  title         String
+  body          String       @db.Text
+  audience      Audience     @default(ALL)
+  institution   Institution? @relation(fields: [institutionId], references: [id])
+  institutionId String?
+  pinned        Boolean      @default(false)
+  createdAt     DateTime     @default(now())
+
+  @@index([audience])
+}
+
+model Feedback {
+  id        String         @id @default(cuid())
+  fromUser  User?          @relation("FeedbackFrom", fields: [fromUserId], references: [id])
+  fromUserId String?
+  student   Student?       @relation(fields: [studentId], references: [id])
+  studentId String?
+  mentor    User?          @relation("FeedbackMentor", fields: [mentorId], references: [id])
+  mentorId  String?
+  rating    Int? // 1-5
+  comment   String         @db.Text
+  status    FeedbackStatus @default(NEW)
+  createdAt DateTime       @default(now())
+
+  @@index([mentorId])
+  @@index([status])
+}
+
+// ----------------------------------------------------------------------------
+// Reporting & records
+// ----------------------------------------------------------------------------
+
+model ProgressReport {
+  id              String       @id @default(cuid())
+  student         Student      @relation(fields: [studentId], references: [id], onDelete: Cascade)
+  studentId       String
+  title           String
+  type            ReportType   @default(MONTHLY)
+  period          String? // e.g. "May 2026"
+  summary         String?      @db.Text
+  content         Json?
+  fileUrl         String?      @db.Text
+  status          ReportStatus @default(DRAFT)
+  submittedBy     User?        @relation("ReportSubmitter", fields: [submittedById], references: [id])
+  submittedById   String?
+  reviewedBy      User?        @relation("ReportReviewer", fields: [reviewedById], references: [id])
+  reviewedById    String?
+  sharedWithParent Boolean     @default(false)
+  createdAt       DateTime     @default(now())
+  updatedAt       DateTime     @updatedAt
+
+  @@index([studentId])
+  @@index([status])
+}
+
+model Achievement {
+  id          String   @id @default(cuid())
+  student     Student  @relation(fields: [studentId], references: [id], onDelete: Cascade)
+  studentId   String
+  title       String
+  description String?  @db.Text
+  category    String?
+  date        DateTime @default(now())
+  addedBy     User?    @relation("AchievementAdder", fields: [addedById], references: [id])
+  addedById   String?
+
+  @@index([studentId])
+}
+
+model Notification {
+  id        String   @id @default(cuid())
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  userId    String
+  title     String
+  message   String   @db.Text
+  type      String?  @default("info")
+  link      String?
+  isRead    Boolean  @default(false)
+  createdAt DateTime @default(now())
+
+  @@index([userId, isRead])
+}
+
+model AuditLog {
+  id        String   @id @default(cuid())
+  user      User?    @relation(fields: [userId], references: [id])
+  userId    String?
+  action    String
+  entity    String?
+  entityId  String?
+  meta      Json?
+  ip        String?
+  createdAt DateTime @default(now())
+
+  @@index([userId])
+  @@index([entity])
+}
