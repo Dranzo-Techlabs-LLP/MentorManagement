@@ -18,3 +18,7 @@ next-env.d.ts
 tsconfig.tsbuildinfo
 /coverage
 .playwright-mcp
+
+# user uploads (runtime)
+/public/uploads/*
+!/public/uploads/.gitkeep

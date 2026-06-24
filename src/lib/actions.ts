@@ -1,6 +1,8 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
+import { writeFile, mkdir } from "fs/promises";
+import path from "path";
 import { prisma } from "./db";
 import { getSession, hashPassword } from "./auth";
 import { requireSession, requireRole } from "./guard";
@@ -423,13 +425,31 @@ export async function addAchievement(fd: FormData): Promise<Result> {
 
 export async function addDocument(fd: FormData): Promise<Result> {
   const sess = await requireSession();
+
+  // Real file upload: if a file is attached, persist it to /public/uploads.
+  let fileUrl = s(fd, "fileUrl");
+  let fileName = sn(fd, "fileName");
+  const file = fd.get("file");
+  if (file && typeof file === "object" && "arrayBuffer" in file && (file as File).size > 0) {
+    const f = file as File;
+    if (f.size > 10 * 1024 * 1024) return { ok: false, error: "File too large (max 10MB)." };
+    const safe = f.name.replace(/[^a-zA-Z0-9._-]/g, "_");
+    const stored = `${Date.now()}-${safe}`;
+    const dir = path.join(process.cwd(), "public", "uploads");
+    await mkdir(dir, { recursive: true });
+    await writeFile(path.join(dir, stored), Buffer.from(await f.arrayBuffer()));
+    fileUrl = `/uploads/${stored}`;
+    fileName = f.name;
+  }
+  if (!fileUrl) return { ok: false, error: "Attach a file or provide a URL." };
+
   await prisma.studentDocument.create({
     data: {
       studentId: s(fd, "studentId"), type: (s(fd, "type") || "OTHER") as Prisma.StudentDocumentCreateInput["type"],
-      title: s(fd, "title"), fileName: sn(fd, "fileName"), fileUrl: s(fd, "fileUrl") || "#", uploadedById: sess.userId,
+      title: s(fd, "title"), fileName, fileUrl, uploadedById: sess.userId,
     },
   });
-  touch(`/admin/students/${s(fd, "studentId")}`, "/parent/documents");
+  touch(`/admin/students/${s(fd, "studentId")}`, "/parent/documents", "/mentor");
   return { ok: true };
 }
 

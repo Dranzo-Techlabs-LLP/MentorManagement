@@ -4,6 +4,7 @@ import { useState } from "react";
 import Link from "next/link";
 import { Menu, Bell, Search } from "lucide-react";
 import { Avatar } from "@/components/ui/primitives";
+import { markAllNotificationsRead } from "@/lib/actions";
 
 export function Topbar({
   user,
@@ -52,8 +53,13 @@ export function Topbar({
           <>
             <div className="fixed inset-0 z-10" onClick={() => setOpenBell(false)} />
             <div className="absolute right-0 z-20 mt-2 w-80 overflow-hidden rounded-xl border border-slate-200 bg-white shadow-cardhover">
-              <div className="border-b border-slate-100 px-4 py-3 text-sm font-semibold text-navy">
-                Notifications
+              <div className="flex items-center justify-between border-b border-slate-100 px-4 py-3">
+                <span className="text-sm font-semibold text-navy">Notifications</span>
+                {notifCount > 0 && (
+                  <form action={async () => { await markAllNotificationsRead(); }}>
+                    <button className="text-xs font-medium text-brand hover:underline">Mark all read</button>
+                  </form>
+                )}
               </div>
               <div className="max-h-80 overflow-y-auto">
                 {notifications.length === 0 ? (

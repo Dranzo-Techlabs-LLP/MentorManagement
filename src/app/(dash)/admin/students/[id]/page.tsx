@@ -693,7 +693,10 @@ function AddDocumentModal({ studentId }: { studentId: string }) {
           <Field label="Title">
             <input name="title" className="input" required placeholder="e.g. Birth Certificate" />
           </Field>
-          <Field label="File URL">
+          <Field label="Upload file" hint="PDF, image or document (max 10MB)">
+            <input type="file" name="file" className="input" accept=".pdf,.png,.jpg,.jpeg,.doc,.docx" />
+          </Field>
+          <Field label="…or File URL">
             <input name="fileUrl" className="input" placeholder="https://…" />
           </Field>
           <div className="flex justify-end">
