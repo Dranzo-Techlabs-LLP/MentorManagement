@@ -2,7 +2,8 @@
 
 import { useState } from "react";
 import Link from "next/link";
-import { Menu, Bell, Search } from "lucide-react";
+import { useRouter } from "next/navigation";
+import { Menu, Bell, Search, LayoutDashboard, LogOut, ChevronDown } from "lucide-react";
 import { Avatar } from "@/components/ui/primitives";
 import { markAllNotificationsRead } from "@/lib/actions";
 
@@ -10,15 +11,28 @@ export function Topbar({
   user,
   notifCount = 0,
   notifications = [],
+  homeHref = "/",
+  searchHref,
   onMenu,
 }: {
   user: { name: string; email: string; avatar?: string | null };
   notifCount?: number;
   notifications?: { id: string; title: string; message: string; link?: string | null }[];
+  homeHref?: string;
+  searchHref?: string;
   onMenu: () => void;
 }) {
+  const router = useRouter();
   const [openBell, setOpenBell] = useState(false);
+  const [openUser, setOpenUser] = useState(false);
   const today = new Date().toLocaleDateString("en-GB", { month: "long", year: "numeric" });
+
+  function onSearch(e: React.FormEvent<HTMLFormElement>) {
+    e.preventDefault();
+    if (!searchHref) return;
+    const q = new FormData(e.currentTarget).get("q")?.toString().trim();
+    router.push(q ? `${searchHref}?q=${encodeURIComponent(q)}` : searchHref);
+  }
 
   return (
     <header className="sticky top-0 z-20 flex h-16 items-center gap-3 border-b border-slate-200 bg-white px-4 lg:px-6">
@@ -26,10 +40,14 @@ export function Topbar({
         <Menu className="h-6 w-6 text-slate-600" />
       </button>
 
-      <div className="relative hidden flex-1 md:block">
-        <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
-        <input className="input max-w-md pl-9" placeholder="Search anything..." />
-      </div>
+      {searchHref ? (
+        <form onSubmit={onSearch} className="relative hidden flex-1 md:block">
+          <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+          <input name="q" className="input max-w-md pl-9" placeholder="Search anything..." />
+        </form>
+      ) : (
+        <div className="hidden flex-1 md:block" />
+      )}
       <div className="flex-1 md:hidden" />
 
       <span className="hidden rounded-lg border border-slate-200 px-3 py-1.5 text-sm font-medium text-slate-500 sm:inline">
@@ -39,7 +57,7 @@ export function Topbar({
       <div className="relative">
         <button
           className="relative rounded-lg p-2 text-slate-500 hover:bg-slate-100"
-          onClick={() => setOpenBell((v) => !v)}
+          onClick={() => { setOpenBell((v) => !v); setOpenUser(false); }}
           aria-label="Notifications"
         >
           <Bell className="h-5 w-5" />
@@ -83,8 +101,39 @@ export function Topbar({
         )}
       </div>
 
-      <div className="flex items-center gap-2">
-        <Avatar name={user.name} src={user.avatar} size={36} />
+      <div className="relative">
+        <button
+          className="flex items-center gap-1.5 rounded-full pl-0.5 pr-1 hover:bg-slate-100"
+          onClick={() => { setOpenUser((v) => !v); setOpenBell(false); }}
+          aria-label="Account menu"
+          aria-expanded={openUser}
+        >
+          <Avatar name={user.name} src={user.avatar} size={36} />
+          <ChevronDown className="h-4 w-4 text-slate-400" />
+        </button>
+        {openUser && (
+          <>
+            <div className="fixed inset-0 z-10" onClick={() => setOpenUser(false)} />
+            <div className="absolute right-0 z-20 mt-2 w-60 overflow-hidden rounded-xl border border-slate-200 bg-white shadow-cardhover">
+              <div className="border-b border-slate-100 px-4 py-3">
+                <p className="truncate text-sm font-semibold text-navy">{user.name}</p>
+                <p className="truncate text-xs text-slate-500">{user.email}</p>
+              </div>
+              <Link
+                href={homeHref}
+                onClick={() => setOpenUser(false)}
+                className="flex items-center gap-2.5 px-4 py-2.5 text-sm text-slate-600 hover:bg-slate-50"
+              >
+                <LayoutDashboard className="h-4 w-4 text-slate-400" /> Dashboard
+              </Link>
+              <form action="/api/auth/logout" method="post" className="border-t border-slate-100">
+                <button className="flex w-full items-center gap-2.5 px-4 py-2.5 text-sm text-red-600 hover:bg-red-50">
+                  <LogOut className="h-4 w-4" /> Logout
+                </button>
+              </form>
+            </div>
+          </>
+        )}
       </div>
     </header>
   );

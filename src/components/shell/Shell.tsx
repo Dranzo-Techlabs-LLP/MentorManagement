@@ -12,6 +12,8 @@ export function Shell({
   accent,
   notifCount,
   notifications,
+  homeHref,
+  searchHref,
   children,
 }: {
   nav: NavItem[];
@@ -20,6 +22,8 @@ export function Shell({
   accent: string;
   notifCount: number;
   notifications: { id: string; title: string; message: string; link?: string | null }[];
+  homeHref: string;
+  searchHref?: string;
   children: React.ReactNode;
 }) {
   const [open, setOpen] = useState(false);
@@ -34,7 +38,7 @@ export function Shell({
         onClose={() => setOpen(false)}
       />
       <div className="flex min-w-0 flex-1 flex-col">
-        <Topbar user={user} notifCount={notifCount} notifications={notifications} onMenu={() => setOpen(true)} />
+        <Topbar user={user} notifCount={notifCount} notifications={notifications} homeHref={homeHref} searchHref={searchHref} onMenu={() => setOpen(true)} />
         <main className="flex-1 p-4 lg:p-6">{children}</main>
       </div>
     </div>

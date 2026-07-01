@@ -28,6 +28,15 @@ export const ROLE_THEME: Record<Role, string> = {
   STUDENT: "#1E50A2",
 };
 
+// Where the global top-bar search sends its query (a list page that supports ?q=).
+// Roles without a searchable list (parent, student) are omitted → search box is hidden.
+export const SEARCH_TARGET: Partial<Record<Role, string>> = {
+  SUPER_ADMIN: "/admin/students",
+  CHIEF_MENTOR: "/chief/students",
+  SUPERVISOR: "/supervisor/students",
+  MENTOR: "/mentor/mentees",
+};
+
 export type NavItem = { label: string; href: string; icon: string };
 
 export const NAV: Record<Role, NavItem[]> = {

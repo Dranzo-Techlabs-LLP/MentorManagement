@@ -1,7 +1,7 @@
 import { redirect } from "next/navigation";
 import { getSession } from "@/lib/auth";
 import { prisma } from "@/lib/db";
-import { NAV, ROLE_LABEL, ROLE_THEME } from "@/lib/rbac";
+import { NAV, ROLE_LABEL, ROLE_THEME, ROLE_HOME, SEARCH_TARGET } from "@/lib/rbac";
 import { Shell } from "@/components/shell/Shell";
 
 export default async function DashLayout({ children }: { children: React.ReactNode }) {
@@ -34,6 +34,8 @@ export default async function DashLayout({ children }: { children: React.ReactNo
       }}
       roleLabel={ROLE_LABEL[session.role]}
       accent={ROLE_THEME[session.role]}
+      homeHref={ROLE_HOME[session.role]}
+      searchHref={SEARCH_TARGET[session.role]}
       notifCount={notifCount}
       notifications={notifications.map((n) => ({
         id: n.id,
