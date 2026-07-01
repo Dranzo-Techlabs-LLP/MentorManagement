@@ -3,7 +3,7 @@
 import { useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { Menu, Bell, Search, LayoutDashboard, LogOut, ChevronDown } from "lucide-react";
+import { Menu, Bell, Search, UserCog, LogOut, ChevronDown } from "lucide-react";
 import { Avatar } from "@/components/ui/primitives";
 import { markAllNotificationsRead } from "@/lib/actions";
 
@@ -11,14 +11,12 @@ export function Topbar({
   user,
   notifCount = 0,
   notifications = [],
-  homeHref = "/",
   searchHref,
   onMenu,
 }: {
   user: { name: string; email: string; avatar?: string | null };
   notifCount?: number;
   notifications?: { id: string; title: string; message: string; link?: string | null }[];
-  homeHref?: string;
   searchHref?: string;
   onMenu: () => void;
 }) {
@@ -120,11 +118,11 @@ export function Topbar({
                 <p className="truncate text-xs text-slate-500">{user.email}</p>
               </div>
               <Link
-                href={homeHref}
+                href="/account"
                 onClick={() => setOpenUser(false)}
                 className="flex items-center gap-2.5 px-4 py-2.5 text-sm text-slate-600 hover:bg-slate-50"
               >
-                <LayoutDashboard className="h-4 w-4 text-slate-400" /> Dashboard
+                <UserCog className="h-4 w-4 text-slate-400" /> Account settings
               </Link>
               <form action="/api/auth/logout" method="post" className="border-t border-slate-100">
                 <button className="flex w-full items-center gap-2.5 px-4 py-2.5 text-sm text-red-600 hover:bg-red-50">

@@ -4,7 +4,7 @@ import { revalidatePath } from "next/cache";
 import { writeFile, mkdir } from "fs/promises";
 import path from "path";
 import { prisma } from "./db";
-import { getSession, hashPassword } from "./auth";
+import { getSession, hashPassword, verifyPassword, createSessionCookie } from "./auth";
 import { requireSession, requireRole } from "./guard";
 import { ageFromDob, ageCategory } from "./utils";
 import type { Prisma, AgeCategory } from "@prisma/client";
@@ -511,5 +511,67 @@ export async function markAllNotificationsRead(): Promise<Result> {
   const sess = await requireSession();
   await prisma.notification.updateMany({ where: { userId: sess.userId, isRead: false }, data: { isRead: true } });
   touch("/");
+  return { ok: true };
+}
+
+// ============================================================================
+// ACCOUNT — the signed-in user's own profile & password
+// ============================================================================
+export async function updateProfile(fd: FormData): Promise<Result> {
+  const sess = await requireSession();
+  const name = s(fd, "name");
+  if (!name) return { ok: false, error: "Name is required." };
+
+  // Optional avatar upload → /public/uploads (same pattern as documents).
+  let avatar: string | undefined;
+  const file = fd.get("avatar");
+  if (file && typeof file === "object" && "arrayBuffer" in file && (file as File).size > 0) {
+    const f = file as File;
+    if (!f.type.startsWith("image/")) return { ok: false, error: "Profile photo must be an image." };
+    if (f.size > 5 * 1024 * 1024) return { ok: false, error: "Image too large (max 5MB)." };
+    const safe = f.name.replace(/[^a-zA-Z0-9._-]/g, "_");
+    const stored = `avatar-${sess.userId}-${Date.now()}-${safe}`;
+    const dir = path.join(process.cwd(), "public", "uploads");
+    await mkdir(dir, { recursive: true });
+    await writeFile(path.join(dir, stored), Buffer.from(await f.arrayBuffer()));
+    avatar = `/uploads/${stored}`;
+  }
+
+  const user = await prisma.user.update({
+    where: { id: sess.userId },
+    data: {
+      name,
+      phone: sn(fd, "phone"),
+      title: sn(fd, "title"),
+      bio: sn(fd, "bio"),
+      ...(avatar ? { avatar } : {}),
+    },
+  });
+
+  // Keep the session cookie in sync — name/avatar are embedded in the JWT.
+  await createSessionCookie({
+    userId: user.id, role: user.role, name: user.name, email: user.email, avatar: user.avatar,
+  });
+  await log("UPDATE", "User", user.id, { self: true });
+  touch("/account", "/");
+  return { ok: true };
+}
+
+export async function changePassword(fd: FormData): Promise<Result> {
+  const sess = await requireSession();
+  const current = s(fd, "currentPassword");
+  const next = s(fd, "newPassword");
+  const confirm = s(fd, "confirmPassword");
+  if (!current || !next) return { ok: false, error: "Fill in all password fields." };
+  if (next.length < 8) return { ok: false, error: "New password must be at least 8 characters." };
+  if (next !== confirm) return { ok: false, error: "New passwords do not match." };
+
+  const user = await prisma.user.findUnique({ where: { id: sess.userId } });
+  if (!user) return { ok: false, error: "User not found." };
+  if (!(await verifyPassword(current, user.passwordHash)))
+    return { ok: false, error: "Current password is incorrect." };
+
+  await prisma.user.update({ where: { id: user.id }, data: { passwordHash: await hashPassword(next) } });
+  await log("PASSWORD_CHANGE", "User", user.id, { self: true });
   return { ok: true };
 }

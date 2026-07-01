@@ -7,7 +7,7 @@ const secret = new TextEncoder().encode(
   process.env.AUTH_SECRET || "dev_insecure_secret_change_me",
 );
 
-const PROTECTED_PREFIXES = ["/admin", "/chief", "/supervisor", "/mentor", "/parent", "/student"];
+const PROTECTED_PREFIXES = ["/admin", "/chief", "/supervisor", "/mentor", "/parent", "/student", "/account"];
 
 async function readSession(req: NextRequest) {
   const token = req.cookies.get("eu_session")?.value;
@@ -46,5 +46,5 @@ export async function middleware(req: NextRequest) {
 }
 
 export const config = {
-  matcher: ["/admin/:path*", "/chief/:path*", "/supervisor/:path*", "/mentor/:path*", "/parent/:path*", "/student/:path*"],
+  matcher: ["/admin/:path*", "/chief/:path*", "/supervisor/:path*", "/mentor/:path*", "/parent/:path*", "/student/:path*", "/account/:path*"],
 };
