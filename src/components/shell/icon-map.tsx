@@ -19,6 +19,7 @@ import {
   FolderOpen,
   Target,
   Trophy,
+  UserCheck,
   type LucideIcon,
 } from "lucide-react";
 
@@ -29,6 +30,7 @@ export const ICONS: Record<string, LucideIcon> = {
   UserRound,
   Contact,
   ClipboardList,
+  UserCheck,
   Building2,
   FileBarChart,
   CalendarDays,

@@ -144,6 +144,10 @@ function LoginForm() {
               <a href="/apply" className="font-semibold text-navy hover:underline">
                 Submit an application
               </a>
+              {"  ·  "}
+              <a href="/apply-mentor" className="font-semibold text-navy hover:underline">
+                Become a mentor
+              </a>
             </p>
           </div>
         </div>

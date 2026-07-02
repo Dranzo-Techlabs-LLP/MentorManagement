@@ -14,6 +14,7 @@ type StudentDefaults = {
   interests?: string | null; talents?: string | null; sports?: string | null; cultural?: string | null;
   hobbies?: string | null; careerAspiration?: string | null; otherTalent?: string | null; lifeGoal?: string | null;
   problems?: string | null; healthProblems?: string | null; mentorRemarks?: string | null;
+  preferredMode?: string | null;
 };
 
 function SectionTitle({ children }: { children: React.ReactNode }) {
@@ -101,6 +102,14 @@ export function StudentFormFields({
           <select name="parentId" className="input" defaultValue={student?.parentId ?? ""}>
             <option value="">— None —</option>
             {parents.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
+          </select>
+        </Field>
+        <Field label="Preferred mentoring mode" hint="Drives mentor matching">
+          <select name="preferredMode" className="input" defaultValue={student?.preferredMode ?? ""}>
+            <option value="">— No preference —</option>
+            <option value="ONLINE">Online</option>
+            <option value="OFFLINE">Offline</option>
+            <option value="BOTH">Both</option>
           </select>
         </Field>
       </div>

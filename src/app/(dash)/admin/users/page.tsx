@@ -178,6 +178,34 @@ function AddUserModal({
               </select>
             </Field>
           </div>
+
+          <h4 className="mt-2 border-b border-slate-100 pb-1 text-sm font-bold text-navy">Mentor profile (for mentors)</h4>
+          <div className="grid gap-4 sm:grid-cols-2">
+            <Field label="Mentoring mode">
+              <select name="mentoringMode" className="input" defaultValue="">
+                <option value="">— N/A —</option>
+                <option value="ONLINE">Online</option>
+                <option value="OFFLINE">Offline</option>
+                <option value="BOTH">Both</option>
+              </select>
+            </Field>
+            <Field label="City">
+              <input name="city" className="input" placeholder="Kochi" />
+            </Field>
+            <Field label="Languages">
+              <input name="languages" className="input" placeholder="English, Malayalam" />
+            </Field>
+            <Field label="Time zone">
+              <input name="timezone" className="input" placeholder="GMT+5:30" />
+            </Field>
+            <Field label="Exposure">
+              <input name="exposure" className="input" placeholder="International / European exposure" />
+            </Field>
+            <Field label="Years of experience">
+              <input name="yearsExperience" type="number" min={0} className="input" placeholder="5" />
+            </Field>
+          </div>
+
           <div className="flex justify-end gap-2 pt-2">
             <SubmitButton>Create user</SubmitButton>
           </div>

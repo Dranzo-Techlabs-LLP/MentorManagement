@@ -14,11 +14,13 @@ import {
   Target,
   FileText,
   CalendarDays,
+  CalendarClock,
+  Sparkles,
   FolderOpen,
 } from "lucide-react";
 import type { GrowthCategory } from "@prisma/client";
 import { prisma } from "@/lib/db";
-import { addGrowthRecord, addAchievement, createGoal, addDocument, saveStudent, upsertSwoc } from "@/lib/actions";
+import { addGrowthRecord, addAchievement, createGoal, addDocument, saveStudent, upsertSwoc, addMonthlyUpdate, assignMentor } from "@/lib/actions";
 import { PageHeader, Avatar, Badge, Progress, EmptyState } from "@/components/ui/primitives";
 import { Panel, MiniMetric, ActivityItem } from "@/components/dash/widgets";
 import { StatusBadge } from "@/components/ui/StatusBadge";
@@ -45,6 +47,7 @@ const TABS = [
   { key: "assessments", label: "Assessments" },
   { key: "sessions", label: "Sessions" },
   { key: "reports", label: "Reports" },
+  { key: "updates", label: "Monthly Updates" },
   { key: "documents", label: "Documents" },
 ];
 
@@ -73,16 +76,23 @@ export default async function StudentProfilePage({
       attendance: { orderBy: { session: { scheduledAt: "desc" } }, include: { session: true } },
       reports: { orderBy: { createdAt: "desc" } },
       swoc: true,
+      monthlyUpdates: { orderBy: { createdAt: "desc" }, include: { mentor: { select: { name: true } } } },
     },
   });
 
   if (!student) notFound();
 
-  const [institutions, mentors, parents] = await Promise.all([
+  const [institutions, mentors, parents, mentorPool] = await Promise.all([
     prisma.institution.findMany({ orderBy: { name: "asc" }, select: { id: true, name: true } }),
     prisma.user.findMany({ where: { role: "MENTOR" }, orderBy: { name: "asc" }, select: { id: true, name: true } }),
     prisma.user.findMany({ where: { role: "PARENT" }, orderBy: { name: "asc" }, select: { id: true, name: true } }),
+    prisma.user.findMany({
+      where: { role: "MENTOR", status: "ACTIVE" },
+      select: { id: true, name: true, city: true, languages: true, exposure: true, timezone: true, mentoringMode: true, yearsExperience: true },
+    }),
   ]);
+
+  const suggestions = rankMentors(student, mentorPool);
 
   const age = ageFromDob(student.dob);
   const level = student.ageCategory ?? ageCategory(age);
@@ -146,7 +156,7 @@ export default async function StudentProfilePage({
 
       <TabLinks tabs={TABS} />
 
-      {active === "profile" && <ProfileTab student={student} age={age} level={level} />}
+      {active === "profile" && <ProfileTab student={student} age={age} level={level} suggestions={suggestions} />}
       {active === "portfolio" && (
         <PortfolioTab
           student={student}
@@ -159,6 +169,7 @@ export default async function StudentProfilePage({
       {active === "assessments" && <AssessmentsTab assessments={student.assessments} />}
       {active === "sessions" && <SessionsTab attendance={student.attendance} />}
       {active === "reports" && <ReportsTab reports={student.reports} />}
+      {active === "updates" && <MonthlyUpdatesTab studentId={student.id} updates={student.monthlyUpdates} />}
       {active === "documents" && <DocumentsTab studentId={student.id} documents={student.documents} />}
     </>
   );
@@ -197,10 +208,12 @@ function ProfileTab({
   student,
   age,
   level,
+  suggestions,
 }: {
   student: ProfileStudent;
   age: number | null;
   level: string | null;
+  suggestions: MentorSuggestion[];
 }) {
   const aspirations: [string, string | null][] = [
     ["Career aspiration", student.careerAspiration],
@@ -301,8 +314,82 @@ function ProfileTab({
           )}
         </Panel>
         <SwocPanel studentId={student.id} swoc={student.swoc} />
+        <MentorMatchPanel studentId={student.id} suggestions={suggestions} />
       </div>
     </div>
+  );
+}
+
+type MentorSuggestion = {
+  id: string; name: string; city: string | null; languages: string | null; exposure: string | null;
+  timezone: string | null; mentoringMode: string | null; yearsExperience: number | null;
+  score: number; reasons: string[];
+};
+
+function rankMentors(
+  student: { preferredMode: string | null; city: string | null; languagesKnown: string | null },
+  pool: {
+    id: string; name: string; city: string | null; languages: string | null; exposure: string | null;
+    timezone: string | null; mentoringMode: string | null; yearsExperience: number | null;
+  }[],
+): MentorSuggestion[] {
+  const mode = student.preferredMode;
+  const studLangs = (student.languagesKnown ?? "").toLowerCase().split(/[,/]/).map((x) => x.trim()).filter(Boolean);
+  return pool
+    .map((m) => {
+      let score = 0;
+      const reasons: string[] = [];
+      if (mode && m.mentoringMode && (m.mentoringMode === mode || m.mentoringMode === "BOTH" || mode === "BOTH")) {
+        score += 2;
+        reasons.push(`${titleCase(m.mentoringMode)} available`);
+      }
+      if ((mode === "OFFLINE" || mode === "BOTH" || !mode) && student.city && m.city && m.city.toLowerCase() === student.city.toLowerCase()) {
+        score += 3;
+        reasons.push(`Same city (${m.city})`);
+      }
+      if ((mode === "ONLINE" || mode === "BOTH" || !mode) && studLangs.length && m.languages && studLangs.some((l) => m.languages!.toLowerCase().includes(l))) {
+        score += 2;
+        reasons.push("Shared language");
+      }
+      if (m.exposure) {
+        score += 0.5;
+        reasons.push(m.exposure);
+      }
+      if (m.yearsExperience) score += Math.min(1, m.yearsExperience / 10);
+      return { ...m, score, reasons };
+    })
+    .sort((a, b) => b.score - a.score)
+    .slice(0, 5);
+}
+
+function MentorMatchPanel({ studentId, suggestions }: { studentId: string; suggestions: MentorSuggestion[] }) {
+  return (
+    <Panel title="Mentor Match" action={<Sparkles className="h-4 w-4 text-gold" />}>
+      {suggestions.length === 0 ? (
+        <p className="text-sm text-slate-400">No mentors in the resource pool yet.</p>
+      ) : (
+        <div className="space-y-3">
+          {suggestions.map((m) => (
+            <div key={m.id} className="rounded-lg border border-slate-100 p-3">
+              <div className="flex items-center justify-between gap-2">
+                <p className="text-sm font-semibold text-slate-700">{m.name}</p>
+                <ActionForm action={assignMentor} className="inline-flex">
+                  <input type="hidden" name="studentId" value={studentId} />
+                  <input type="hidden" name="mentorId" value={m.id} />
+                  <SubmitButton className="btn-ghost text-xs" pendingText="…">Assign</SubmitButton>
+                </ActionForm>
+              </div>
+              <div className="mt-1 flex flex-wrap items-center gap-1.5 text-xs text-slate-500">
+                {m.mentoringMode && <Badge tone="teal">{titleCase(m.mentoringMode)}</Badge>}
+                {m.city && <span>📍 {m.city}</span>}
+                {m.languages && <span>🗣 {m.languages}</span>}
+              </div>
+              {m.reasons.length > 0 && <p className="mt-1 text-xs font-medium text-leaf-700">{m.reasons.join(" · ")}</p>}
+            </div>
+          ))}
+        </div>
+      )}
+    </Panel>
   );
 }
 
@@ -865,6 +952,70 @@ function EditStudentModal({
         <StudentFormFields student={student} institutions={institutions} mentors={mentors} parents={parents} />
         <div className="flex justify-end gap-2 pt-2">
           <SubmitButton>Save changes</SubmitButton>
+        </div>
+      </ActionForm>
+    </Modal>
+  );
+}
+
+function MonthlyUpdatesTab({
+  studentId,
+  updates,
+}: {
+  studentId: string;
+  updates: { id: string; month: string; summary: string; progress: number | null; createdAt: Date; mentor: { name: string } | null }[];
+}) {
+  return (
+    <Panel title="Monthly Meetup Updates" action={<AddMonthlyUpdateModal studentId={studentId} />}>
+      {updates.length === 0 ? (
+        <EmptyState
+          title="No monthly updates yet"
+          hint="Log how the mentee changed each month after the offline meetup."
+          icon={<CalendarClock className="h-8 w-8" />}
+        />
+      ) : (
+        <div className="space-y-4">
+          {updates.map((u) => (
+            <div key={u.id} className="rounded-xl border border-slate-100 p-4">
+              <div className="flex items-center justify-between gap-2">
+                <p className="font-semibold text-navy">{u.month}</p>
+                {u.progress != null && (
+                  <span className="rounded-lg bg-slate-50 px-2.5 py-1 text-sm font-bold text-navy">{u.progress}%</span>
+                )}
+              </div>
+              <p className="mt-1 whitespace-pre-wrap text-sm text-slate-600">{u.summary}</p>
+              <p className="mt-1 text-xs text-slate-400">
+                {fmtDate(u.createdAt)}
+                {u.mentor ? ` · ${u.mentor.name}` : ""}
+              </p>
+            </div>
+          ))}
+        </div>
+      )}
+    </Panel>
+  );
+}
+
+function AddMonthlyUpdateModal({ studentId }: { studentId: string }) {
+  return (
+    <Modal
+      title="Add Monthly Update"
+      triggerClassName="btn-outline text-xs"
+      triggerLabel={<><Plus className="h-3.5 w-3.5" /> Add</>}
+    >
+      <ActionForm action={addMonthlyUpdate} className="space-y-4" successMessage="Monthly update saved.">
+        <input type="hidden" name="studentId" value={studentId} />
+        <Field label="Month" hint="e.g. July 2026 (defaults to current month)">
+          <input name="month" className="input" placeholder="July 2026" />
+        </Field>
+        <Field label="How the mentee changed this month">
+          <textarea name="summary" className="input" rows={4} required placeholder="Progress, behaviour, achievements, concerns…" />
+        </Field>
+        <Field label="Overall progress (%)" hint="Optional">
+          <input name="progress" type="number" min={0} max={100} className="input" placeholder="70" />
+        </Field>
+        <div className="flex justify-end">
+          <SubmitButton>Save update</SubmitButton>
         </div>
       </ActionForm>
     </Modal>

@@ -47,6 +47,7 @@ export const NAV: Record<Role, NavItem[]> = {
     { label: "Students", href: "/admin/students", icon: "UserRound" },
     { label: "Parents", href: "/admin/parents", icon: "Contact" },
     { label: "Applications", href: "/admin/applications", icon: "ClipboardList" },
+    { label: "Mentor Applications", href: "/admin/mentor-applications", icon: "UserCheck" },
     { label: "Institutions", href: "/admin/institutions", icon: "Building2" },
     { label: "Assessments", href: "/admin/assessments", icon: "FileBarChart" },
     { label: "Sessions", href: "/admin/sessions", icon: "CalendarDays" },

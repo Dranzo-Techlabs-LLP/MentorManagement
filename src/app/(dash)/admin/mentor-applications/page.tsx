@@ -1,0 +1,169 @@
+import type { MentorAppStatus } from "@prisma/client";
+import { CalendarClock, X } from "lucide-react";
+import { prisma } from "@/lib/db";
+import { moveMentorToInterview, approveMentorApplication, rejectMentorApplication } from "@/lib/actions";
+import { PageHeader, Badge } from "@/components/ui/primitives";
+import { Panel } from "@/components/dash/widgets";
+import { TabLinks } from "@/components/ui/Tabs";
+import { Modal } from "@/components/ui/Modal";
+import { ActionForm } from "@/components/ui/ActionForm";
+import { SubmitButton, Field } from "@/components/ui/form";
+import { fmtDate, titleCase } from "@/lib/utils";
+
+const TABS = [
+  { key: "APPLIED", label: "Applied" },
+  { key: "INTERVIEW", label: "Interview" },
+  { key: "APPROVED", label: "Approved" },
+  { key: "REJECTED", label: "Rejected" },
+];
+
+const STATUS_TONE: Record<MentorAppStatus, "blue" | "gold" | "green" | "red"> = {
+  APPLIED: "blue",
+  INTERVIEW: "gold",
+  APPROVED: "green",
+  REJECTED: "red",
+};
+
+const STATUSES: MentorAppStatus[] = ["APPLIED", "INTERVIEW", "APPROVED", "REJECTED"];
+
+export default async function MentorApplicationsPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ tab?: string }>;
+}) {
+  const { tab } = await searchParams;
+  const status = (STATUSES.includes(tab as MentorAppStatus) ? tab : "APPLIED") as MentorAppStatus;
+
+  const apps = await prisma.mentorApplication.findMany({
+    where: { status },
+    orderBy: { createdAt: "desc" },
+  });
+
+  return (
+    <>
+      <PageHeader
+        title="Mentor Applications"
+        subtitle="Review CVs, interview candidates & add mentors to the resource pool"
+      />
+      <TabLinks tabs={TABS} />
+
+      <div className="space-y-4">
+        {apps.length === 0 ? (
+          <Panel>
+            <p className="py-8 text-center text-sm text-slate-400">No applications in this stage.</p>
+          </Panel>
+        ) : (
+          apps.map((a) => (
+            <Panel key={a.id}>
+              <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+                <div className="min-w-0 flex-1">
+                  <div className="flex items-center gap-2">
+                    <h3 className="font-bold text-navy">{a.name}</h3>
+                    <Badge tone={STATUS_TONE[a.status]}>{titleCase(a.status)}</Badge>
+                  </div>
+                  <p className="text-sm text-slate-500">
+                    {a.email}
+                    {a.phone ? ` · ${a.phone}` : ""}
+                  </p>
+                  <div className="mt-2 flex flex-wrap items-center gap-2 text-xs text-slate-500">
+                    {a.preferredMode && <Badge tone="teal">{titleCase(a.preferredMode)}</Badge>}
+                    {a.city && <span>📍 {a.city}</span>}
+                    {a.languages && <span>🗣 {a.languages}</span>}
+                    {a.timezone && <span>🕑 {a.timezone}</span>}
+                    {a.exposure && <span>🌍 {a.exposure}</span>}
+                  </div>
+                  {a.qualifications && (
+                    <p className="mt-2 text-sm text-slate-600">
+                      <span className="font-semibold text-slate-500">Qualifications:</span> {a.qualifications}
+                    </p>
+                  )}
+                  {a.experience && (
+                    <p className="mt-1 text-sm text-slate-600">
+                      <span className="font-semibold text-slate-500">Experience:</span> {a.experience}
+                    </p>
+                  )}
+                  {a.cv && (
+                    <details className="mt-2 text-sm">
+                      <summary className="cursor-pointer font-semibold text-slate-500">CV / summary</summary>
+                      <p className="mt-1 whitespace-pre-wrap text-slate-600">{a.cv}</p>
+                    </details>
+                  )}
+                  {a.cvFileUrl && (
+                    <a href={a.cvFileUrl} target="_blank" rel="noreferrer" className="btn-ghost mt-2 text-xs">
+                      Open CV file
+                    </a>
+                  )}
+                  {a.interviewNote && (
+                    <p className="mt-2 rounded-lg bg-slate-50 p-2 text-xs text-slate-600">
+                      <span className="font-semibold">Interview note:</span> {a.interviewNote}
+                    </p>
+                  )}
+                  <p className="mt-2 text-xs text-slate-400">Applied {fmtDate(a.createdAt)}</p>
+                </div>
+
+                {a.status !== "APPROVED" && a.status !== "REJECTED" && (
+                  <div className="flex shrink-0 flex-wrap gap-2">
+                    {a.status === "APPLIED" && <InterviewModal id={a.id} />}
+                    <ApproveForm id={a.id} />
+                    <RejectModal id={a.id} />
+                  </div>
+                )}
+              </div>
+            </Panel>
+          ))
+        )}
+      </div>
+    </>
+  );
+}
+
+function InterviewModal({ id }: { id: string }) {
+  return (
+    <Modal
+      title="Move to Interview"
+      triggerClassName="btn-outline text-xs"
+      triggerLabel={<><CalendarClock className="h-3.5 w-3.5" /> Interview</>}
+    >
+      <ActionForm action={moveMentorToInterview} className="space-y-4">
+        <input type="hidden" name="id" value={id} />
+        <Field label="Interview note" hint="Optional — schedule, panel, notes.">
+          <textarea name="interviewNote" className="input" rows={3} placeholder="Interview scheduled for…" />
+        </Field>
+        <div className="flex justify-end">
+          <SubmitButton>Move to interview</SubmitButton>
+        </div>
+      </ActionForm>
+    </Modal>
+  );
+}
+
+function ApproveForm({ id }: { id: string }) {
+  return (
+    <ActionForm action={approveMentorApplication} className="inline-flex">
+      <input type="hidden" name="id" value={id} />
+      <SubmitButton className="btn-green text-xs" pendingText="Approving…">
+        Approve → Pool
+      </SubmitButton>
+    </ActionForm>
+  );
+}
+
+function RejectModal({ id }: { id: string }) {
+  return (
+    <Modal
+      title="Reject Application"
+      triggerClassName="btn-ghost text-xs text-red-600"
+      triggerLabel={<><X className="h-3.5 w-3.5" /> Reject</>}
+    >
+      <ActionForm action={rejectMentorApplication} className="space-y-4">
+        <input type="hidden" name="id" value={id} />
+        <Field label="Reason (optional)">
+          <textarea name="interviewNote" className="input" rows={3} placeholder="Reason for rejection…" />
+        </Field>
+        <div className="flex justify-end">
+          <SubmitButton className="btn-primary">Reject application</SubmitButton>
+        </div>
+      </ActionForm>
+    </Modal>
+  );
+}

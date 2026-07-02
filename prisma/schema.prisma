@@ -197,6 +197,15 @@ model User {
   title        String? // e.g. "Dr.", designation
   bio          String?    @db.Text
 
+  // --- Mentor profile & matching (mentors) ---
+  mentoringMode    MentoringMode?
+  city             String?
+  timezone         String?
+  languages        String?
+  exposure         String? // e.g. "International", "European exposure"
+  yearsExperience  Int?
+  availableForPool Boolean        @default(false)
+
   institution   Institution? @relation(fields: [institutionId], references: [id])
   institutionId String?
 
@@ -233,6 +242,7 @@ model User {
   announcements        Announcement[]      @relation("AnnouncementAuthor")
   notifications        Notification[]
   auditLogs            AuditLog[]
+  monthlyUpdates       MonthlyUpdate[]     @relation("MentorMonthlyUpdates")
 
   @@index([role])
   @@index([institutionId])
@@ -282,6 +292,9 @@ model Student {
   healthProblems String? @db.Text
   mentorRemarks  String? @db.Text
 
+  // --- Mentoring preference (matching) ---
+  preferredMode MentoringMode?
+
   institution   Institution? @relation(fields: [institutionId], references: [id])
   institutionId String?
 
@@ -304,9 +317,10 @@ model Student {
   assessments   StudentAssessment[]
   attendance    SessionAttendance[]
   reports       ProgressReport[]
-  achievements  Achievement[]
-  feedback      Feedback[]
-  swoc          StudentSwoc?
+  achievements   Achievement[]
+  feedback       Feedback[]
+  swoc           StudentSwoc?
+  monthlyUpdates MonthlyUpdate[]
 
   @@index([mentorId])
   @@index([parentId])
@@ -326,6 +340,60 @@ model StudentSwoc {
   updatedById   String?
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
+}
+
+enum MentoringMode {
+  ONLINE
+  OFFLINE
+  BOTH
+}
+
+enum MentorAppStatus {
+  APPLIED
+  INTERVIEW
+  APPROVED
+  REJECTED
+}
+
+// Public "become a mentor" applications → reviewed → interview → resource pool.
+model MentorApplication {
+  id             String          @id @default(cuid())
+  name           String
+  email          String
+  phone          String?
+  qualifications String?         @db.Text
+  experience     String?         @db.Text
+  cv             String?         @db.Text // typed CV / summary
+  cvFileUrl      String?
+  preferredMode  MentoringMode?
+  languages      String?
+  timezone       String?
+  city           String?
+  exposure       String?
+  status         MentorAppStatus @default(APPLIED)
+  interviewNote  String?         @db.Text
+  reviewedById   String?
+  createdUserId  String? // the MENTOR user created on approval
+  createdAt      DateTime        @default(now())
+  updatedAt      DateTime        @updatedAt
+
+  @@index([status])
+}
+
+// Monthly offline meetup update — how the mentee changed over the month.
+model MonthlyUpdate {
+  id          String   @id @default(cuid())
+  student     Student  @relation(fields: [studentId], references: [id], onDelete: Cascade)
+  studentId   String
+  mentor      User?    @relation("MentorMonthlyUpdates", fields: [mentorId], references: [id])
+  mentorId    String?
+  month       String // e.g. "July 2026"
+  summary     String   @db.Text
+  progress    Int? // optional 0–100 overall progress
+  createdById String?
+  createdAt   DateTime @default(now())
+
+  @@index([studentId])
 }
 
 model ParentApplication {

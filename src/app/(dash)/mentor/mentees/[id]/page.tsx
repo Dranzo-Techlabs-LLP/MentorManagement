@@ -18,7 +18,7 @@ import {
 import type { GrowthCategory } from "@prisma/client";
 import { prisma } from "@/lib/db";
 import { getSession } from "@/lib/auth";
-import { addGrowthRecord, addAchievement, createGoal, assignAssessment, createReport } from "@/lib/actions";
+import { addGrowthRecord, addAchievement, createGoal, assignAssessment, createReport, addMonthlyUpdate } from "@/lib/actions";
 import { PageHeader, Avatar, Badge, Progress, EmptyState } from "@/components/ui/primitives";
 import { Panel, MiniMetric } from "@/components/dash/widgets";
 import { StatusBadge } from "@/components/ui/StatusBadge";
@@ -56,6 +56,7 @@ export default async function MenteeDetailPage({ params }: { params: Promise<{ i
       assessments: { orderBy: { createdAt: "desc" }, include: { template: true } },
       attendance: { orderBy: { session: { scheduledAt: "desc" } }, include: { session: true } },
       reports: { orderBy: { createdAt: "desc" } },
+      monthlyUpdates: { orderBy: { createdAt: "desc" }, include: { mentor: { select: { name: true } } } },
     },
   });
 
@@ -129,6 +130,7 @@ export default async function MenteeDetailPage({ params }: { params: Promise<{ i
         subtitle="Track development, goals, assessments & reports"
         action={
           <div className="flex flex-wrap items-center gap-2">
+            <MonthlyUpdateModal studentId={student.id} />
             <AssignAssessmentModal studentId={student.id} templates={templates} />
             <CreateReportModal studentId={student.id} />
           </div>
@@ -140,6 +142,10 @@ export default async function MenteeDetailPage({ params }: { params: Promise<{ i
         <MiniMetric label="Growth Records" value={student.growthRecords.length} sub="Logged observations" />
         <MiniMetric label="Goals" value={`${completedGoals}/${student.goals.length}`} sub="Completed / total" />
         <MiniMetric label="Achievements" value={student.achievements.length} sub="Milestones earned" />
+      </div>
+
+      <div className="mt-4">
+        <MonthlyUpdatesPanel studentId={student.id} updates={student.monthlyUpdates} />
       </div>
 
       <div className="mt-4 grid gap-4 lg:grid-cols-2">
@@ -522,6 +528,70 @@ function CreateReportModal({ studentId }: { studentId: string }) {
           <div className="flex justify-end">
             <SubmitButton>Save report</SubmitButton>
           </div>
+      </ActionForm>
+    </Modal>
+  );
+}
+
+function MonthlyUpdatesPanel({
+  studentId,
+  updates,
+}: {
+  studentId: string;
+  updates: { id: string; month: string; summary: string; progress: number | null; createdAt: Date; mentor: { name: string } | null }[];
+}) {
+  return (
+    <Panel title="Monthly Meetup Updates" action={<MonthlyUpdateModal studentId={studentId} />}>
+      {updates.length === 0 ? (
+        <EmptyState
+          title="No monthly updates yet"
+          hint="After each monthly offline meetup, log how your mentee changed."
+          icon={<CalendarDays className="h-8 w-8" />}
+        />
+      ) : (
+        <div className="space-y-3">
+          {updates.map((u) => (
+            <div key={u.id} className="rounded-xl border border-slate-100 p-4">
+              <div className="flex items-center justify-between gap-2">
+                <p className="font-semibold text-navy">{u.month}</p>
+                {u.progress != null && (
+                  <span className="rounded-lg bg-slate-50 px-2.5 py-1 text-sm font-bold text-navy">{u.progress}%</span>
+                )}
+              </div>
+              <p className="mt-1 whitespace-pre-wrap text-sm text-slate-600">{u.summary}</p>
+              <p className="mt-1 text-xs text-slate-400">
+                {fmtDate(u.createdAt)}
+                {u.mentor ? ` · ${u.mentor.name}` : ""}
+              </p>
+            </div>
+          ))}
+        </div>
+      )}
+    </Panel>
+  );
+}
+
+function MonthlyUpdateModal({ studentId }: { studentId: string }) {
+  return (
+    <Modal
+      title="Log Monthly Update"
+      triggerClassName="btn-outline text-xs"
+      triggerLabel={<><Plus className="h-3.5 w-3.5" /> Monthly update</>}
+    >
+      <ActionForm action={addMonthlyUpdate} className="space-y-4" successMessage="Monthly update saved.">
+        <input type="hidden" name="studentId" value={studentId} />
+        <Field label="Month" hint="e.g. July 2026 (defaults to current month)">
+          <input name="month" className="input" placeholder="July 2026" />
+        </Field>
+        <Field label="How the mentee changed this month">
+          <textarea name="summary" className="input" rows={4} required placeholder="Progress, behaviour, achievements, concerns…" />
+        </Field>
+        <Field label="Overall progress (%)" hint="Optional">
+          <input name="progress" type="number" min={0} max={100} className="input" placeholder="70" />
+        </Field>
+        <div className="flex justify-end">
+          <SubmitButton>Save update</SubmitButton>
+        </div>
       </ActionForm>
     </Modal>
   );

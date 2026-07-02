@@ -142,6 +142,8 @@ export async function saveStudent(fd: FormData): Promise<Result> {
     careerAspiration: sn(fd, "careerAspiration"), otherTalent: sn(fd, "otherTalent"), lifeGoal: sn(fd, "lifeGoal"),
     // additional information
     problems: sn(fd, "problems"), healthProblems: sn(fd, "healthProblems"), mentorRemarks: sn(fd, "mentorRemarks"),
+    // mentoring preference
+    preferredMode: (sn(fd, "preferredMode") || null) as Prisma.StudentCreateInput["preferredMode"],
   };
   let res;
   if (id) res = await prisma.student.update({ where: { id }, data });
@@ -182,6 +184,10 @@ export async function saveUser(fd: FormData): Promise<Result> {
     name: s(fd, "name"), email, role: s(fd, "role") as Prisma.UserCreateInput["role"],
     phone: sn(fd, "phone"), title: sn(fd, "title"), institutionId: sn(fd, "institutionId"),
     managerId: sn(fd, "managerId"),
+    // mentor profile & matching
+    mentoringMode: (sn(fd, "mentoringMode") || null) as Prisma.UserCreateInput["mentoringMode"],
+    city: sn(fd, "city"), timezone: sn(fd, "timezone"), languages: sn(fd, "languages"),
+    exposure: sn(fd, "exposure"), yearsExperience: num(fd, "yearsExperience"),
   };
   if (id) {
     await prisma.user.update({ where: { id }, data: base });
@@ -604,5 +610,134 @@ export async function changePassword(fd: FormData): Promise<Result> {
 
   await prisma.user.update({ where: { id: user.id }, data: { passwordHash: await hashPassword(next) } });
   await log("PASSWORD_CHANGE", "User", user.id, { self: true });
+  return { ok: true };
+}
+
+// ============================================================================
+// MENTOR RECRUITMENT — public application → interview → resource pool
+// ============================================================================
+export async function submitMentorApplication(fd: FormData): Promise<Result> {
+  const name = s(fd, "name");
+  const email = s(fd, "email");
+  if (!name || !email) return { ok: false, error: "Name and email are required." };
+
+  // optional CV file upload
+  let cvFileUrl = sn(fd, "cvFileUrl");
+  const file = fd.get("cvFile");
+  if (file && typeof file === "object" && "arrayBuffer" in file && (file as File).size > 0) {
+    const f = file as File;
+    if (f.size > 10 * 1024 * 1024) return { ok: false, error: "CV file too large (max 10MB)." };
+    const safe = f.name.replace(/[^a-zA-Z0-9._-]/g, "_");
+    const stored = `cv-${Date.now()}-${safe}`;
+    const dir = path.join(process.cwd(), "public", "uploads");
+    await mkdir(dir, { recursive: true });
+    await writeFile(path.join(dir, stored), Buffer.from(await f.arrayBuffer()));
+    cvFileUrl = `/uploads/${stored}`;
+  }
+
+  const app = await prisma.mentorApplication.create({
+    data: {
+      name, email: email.toLowerCase(), phone: sn(fd, "phone"),
+      qualifications: sn(fd, "qualifications"), experience: sn(fd, "experience"), cv: sn(fd, "cv"), cvFileUrl,
+      preferredMode: (sn(fd, "preferredMode") || null) as Prisma.MentorApplicationCreateInput["preferredMode"],
+      languages: sn(fd, "languages"), timezone: sn(fd, "timezone"), city: sn(fd, "city"), exposure: sn(fd, "exposure"),
+    },
+  });
+  const admins = await prisma.user.findMany({ where: { role: "SUPER_ADMIN" }, select: { id: true } });
+  for (const a of admins)
+    await notify(a.id, "New mentor application", `${name} applied to become a mentor.`, "/admin/mentor-applications");
+  touch("/admin/mentor-applications", "/admin");
+  return { ok: true, id: app.id };
+}
+
+export async function moveMentorToInterview(fd: FormData): Promise<Result> {
+  const sess = await requireRole("SUPER_ADMIN", "CHIEF_MENTOR");
+  const id = s(fd, "id");
+  await prisma.mentorApplication.update({
+    where: { id }, data: { status: "INTERVIEW", interviewNote: sn(fd, "interviewNote"), reviewedById: sess.userId },
+  });
+  await log("INTERVIEW", "MentorApplication", id);
+  touch("/admin/mentor-applications");
+  return { ok: true };
+}
+
+export async function approveMentorApplication(fd: FormData): Promise<Result> {
+  const sess = await requireRole("SUPER_ADMIN", "CHIEF_MENTOR");
+  const id = s(fd, "id");
+  const app = await prisma.mentorApplication.findUnique({ where: { id } });
+  if (!app) return { ok: false, error: "Application not found" };
+
+  // create or promote the mentor user → add to the resource pool
+  let user = await prisma.user.findUnique({ where: { email: app.email.toLowerCase() } });
+  if (!user) {
+    user = await prisma.user.create({
+      data: {
+        name: app.name, email: app.email.toLowerCase(), passwordHash: await hashPassword("Elevate@123"),
+        role: "MENTOR", phone: app.phone, bio: app.experience,
+        mentoringMode: app.preferredMode, city: app.city, timezone: app.timezone,
+        languages: app.languages, exposure: app.exposure, availableForPool: true,
+      },
+    });
+  } else {
+    await prisma.user.update({ where: { id: user.id }, data: { availableForPool: true } });
+  }
+  await prisma.mentorApplication.update({
+    where: { id }, data: { status: "APPROVED", reviewedById: sess.userId, createdUserId: user.id },
+  });
+  await notify(user.id, "Welcome to the mentor pool", "Your mentor application has been approved.", "/mentor");
+  await log("APPROVE", "MentorApplication", id);
+  touch("/admin/mentor-applications", "/admin/mentors", "/admin/users", "/admin");
+  return { ok: true, id: user.id };
+}
+
+export async function rejectMentorApplication(fd: FormData): Promise<Result> {
+  const sess = await requireRole("SUPER_ADMIN", "CHIEF_MENTOR");
+  const id = s(fd, "id");
+  await prisma.mentorApplication.update({
+    where: { id }, data: { status: "REJECTED", interviewNote: sn(fd, "interviewNote"), reviewedById: sess.userId },
+  });
+  await log("REJECT", "MentorApplication", id);
+  touch("/admin/mentor-applications");
+  return { ok: true };
+}
+
+// ============================================================================
+// MONTHLY MEETUP UPDATE — mentor logs how the mentee changed this month
+// ============================================================================
+export async function addMonthlyUpdate(fd: FormData): Promise<Result> {
+  const sess = await requireRole("MENTOR", "SUPERVISOR", "CHIEF_MENTOR", "SUPER_ADMIN");
+  const studentId = s(fd, "studentId");
+  if (!studentId) return { ok: false, error: "Missing student." };
+  const summary = s(fd, "summary");
+  if (!summary) return { ok: false, error: "Please describe how the mentee changed this month." };
+
+  const student = await prisma.student.findUnique({
+    where: { id: studentId }, select: { mentorId: true, parentId: true, fullName: true },
+  });
+  await prisma.monthlyUpdate.create({
+    data: {
+      studentId, mentorId: student?.mentorId ?? sess.userId,
+      month: s(fd, "month") || new Date().toLocaleDateString("en-GB", { month: "long", year: "numeric" }),
+      summary, progress: num(fd, "progress"), createdById: sess.userId,
+    },
+  });
+  if (student?.parentId)
+    await notify(student.parentId, "New monthly update", `A monthly mentoring update was added for ${student.fullName}.`, "/parent");
+  await log("CREATE", "MonthlyUpdate", studentId);
+  touch(`/admin/students/${studentId}`, `/mentor/mentees/${studentId}`, "/mentor");
+  return { ok: true };
+}
+
+// ============================================================================
+// MENTOR ASSIGNMENT (matching) — assign a mentor to a student
+// ============================================================================
+export async function assignMentor(fd: FormData): Promise<Result> {
+  await requireRole("SUPER_ADMIN", "CHIEF_MENTOR", "SUPERVISOR");
+  const studentId = s(fd, "studentId");
+  const mentorId = sn(fd, "mentorId");
+  if (!studentId) return { ok: false, error: "Missing student." };
+  await prisma.student.update({ where: { id: studentId }, data: { mentorId } });
+  await log("ASSIGN_MENTOR", "Student", studentId, { mentorId });
+  touch(`/admin/students/${studentId}`, "/admin/students", "/mentor/mentees");
   return { ok: true };
 }
