@@ -259,6 +259,29 @@ model Student {
   status        StudentStatus @default(ACTIVE)
   admissionDate DateTime      @default(now())
 
+  // --- Mentoring record: identity & academics ---
+  registrationNumber String?
+  yearOfStudy        String?
+
+  // --- Family & educational background ---
+  fatherOccupation  String?
+  motherOccupation  String?
+  plusTwoPercentage String?
+  languagesKnown    String?
+
+  // --- Interests, talents & aspirations ---
+  sports           String? @db.Text
+  cultural         String? @db.Text
+  hobbies          String? @db.Text
+  careerAspiration String? @db.Text
+  otherTalent      String? @db.Text
+  lifeGoal         String? @db.Text
+
+  // --- Additional information ---
+  problems       String? @db.Text
+  healthProblems String? @db.Text
+  mentorRemarks  String? @db.Text
+
   institution   Institution? @relation(fields: [institutionId], references: [id])
   institutionId String?
 
@@ -283,11 +306,26 @@ model Student {
   reports       ProgressReport[]
   achievements  Achievement[]
   feedback      Feedback[]
+  swoc          StudentSwoc?
 
   @@index([mentorId])
   @@index([parentId])
   @@index([institutionId])
   @@index([status])
+}
+
+// SWOC analysis of a mentee (one per student) — mirrors the mentoring record form.
+model StudentSwoc {
+  id            String   @id @default(cuid())
+  student       Student  @relation(fields: [studentId], references: [id], onDelete: Cascade)
+  studentId     String   @unique
+  strengths     String?  @db.Text
+  weaknesses    String?  @db.Text
+  opportunities String?  @db.Text
+  challenges    String?  @db.Text
+  updatedById   String?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
 }
 
 model ParentApplication {

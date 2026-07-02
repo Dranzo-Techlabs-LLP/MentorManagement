@@ -10,7 +10,8 @@ import { SearchBar } from "@/components/ui/SearchBar";
 import { StatusBadge } from "@/components/ui/StatusBadge";
 import { Modal } from "@/components/ui/Modal";
 import { ActionForm } from "@/components/ui/ActionForm";
-import { SubmitButton, Field } from "@/components/ui/form";
+import { SubmitButton } from "@/components/ui/form";
+import { StudentFormFields } from "./StudentFormFields";
 import { CATEGORY_LABEL } from "@/lib/utils";
 
 export default async function StudentsPage({
@@ -100,70 +101,7 @@ function AddStudentModal({
       triggerLabel={<><UserPlus className="h-4 w-4" /> Add Student</>}
     >
       <ActionForm action={saveStudent} className="space-y-4">
-          <div className="grid gap-4 sm:grid-cols-2">
-            <Field label="Full name">
-              <input name="fullName" className="input" required placeholder="Muhammed Sinan" />
-            </Field>
-            <Field label="Gender">
-              <select name="gender" className="input" defaultValue="">
-                <option value="">— Select —</option>
-                <option value="Male">Male</option>
-                <option value="Female">Female</option>
-                <option value="Other">Other</option>
-              </select>
-            </Field>
-            <Field label="Date of birth">
-              <input name="dob" type="date" className="input" />
-            </Field>
-            <Field label="Class / Grade">
-              <input name="className" className="input" placeholder="Grade 9" />
-            </Field>
-            <Field label="Email">
-              <input name="email" type="email" className="input" placeholder="student@example.com" />
-            </Field>
-            <Field label="Phone">
-              <input name="phone" className="input" placeholder="+91 98470 00000" />
-            </Field>
-            <Field label="Address">
-              <input name="address" className="input" placeholder="City, State" />
-            </Field>
-            <Field label="Interests">
-              <input name="interests" className="input" placeholder="Robotics, Football, Reading" />
-            </Field>
-            <Field label="Talents">
-              <input name="talents" className="input" placeholder="Public speaking, Coding" />
-            </Field>
-            <Field label="Institution">
-              <select name="institutionId" className="input" defaultValue="">
-                <option value="">— None —</option>
-                {institutions.map((i) => (
-                  <option key={i.id} value={i.id}>
-                    {i.name}
-                  </option>
-                ))}
-              </select>
-            </Field>
-            <Field label="Mentor">
-              <select name="mentorId" className="input" defaultValue="">
-                <option value="">— Unassigned —</option>
-                {mentors.map((m) => (
-                  <option key={m.id} value={m.id}>
-                    {m.name}
-                  </option>
-                ))}
-              </select>
-            </Field>
-            <Field label="Parent / Guardian">
-              <select name="parentId" className="input" defaultValue="">
-                <option value="">— None —</option>
-                {parents.map((p) => (
-                  <option key={p.id} value={p.id}>
-                    {p.name}
-                  </option>
-                ))}
-              </select>
-            </Field>
-          </div>
+          <StudentFormFields institutions={institutions} mentors={mentors} parents={parents} />
           <div className="flex justify-end gap-2 pt-2">
             <SubmitButton>Create student</SubmitButton>
           </div>

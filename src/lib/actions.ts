@@ -129,8 +129,19 @@ export async function saveStudent(fd: FormData): Promise<Result> {
     fullName: s(fd, "fullName"), gender: sn(fd, "gender"), dob,
     ageCategory: ageCategory(ageFromDob(dob)) as AgeCategory | null,
     email: sn(fd, "email"), phone: sn(fd, "phone"), className: sn(fd, "className"),
+    rollNo: sn(fd, "rollNo"), city: sn(fd, "city"), bloodGroup: sn(fd, "bloodGroup"),
     address: sn(fd, "address"), interests: sn(fd, "interests"), talents: sn(fd, "talents"),
     institutionId: sn(fd, "institutionId"), mentorId: sn(fd, "mentorId"), parentId: sn(fd, "parentId"),
+    // mentoring record — identity & academics
+    registrationNumber: sn(fd, "registrationNumber"), yearOfStudy: sn(fd, "yearOfStudy"),
+    // family & educational background
+    fatherOccupation: sn(fd, "fatherOccupation"), motherOccupation: sn(fd, "motherOccupation"),
+    plusTwoPercentage: sn(fd, "plusTwoPercentage"), languagesKnown: sn(fd, "languagesKnown"),
+    // interests, talents & aspirations
+    sports: sn(fd, "sports"), cultural: sn(fd, "cultural"), hobbies: sn(fd, "hobbies"),
+    careerAspiration: sn(fd, "careerAspiration"), otherTalent: sn(fd, "otherTalent"), lifeGoal: sn(fd, "lifeGoal"),
+    // additional information
+    problems: sn(fd, "problems"), healthProblems: sn(fd, "healthProblems"), mentorRemarks: sn(fd, "mentorRemarks"),
   };
   let res;
   if (id) res = await prisma.student.update({ where: { id }, data });
@@ -138,6 +149,26 @@ export async function saveStudent(fd: FormData): Promise<Result> {
   await log(id ? "UPDATE" : "CREATE", "Student", res.id);
   touch("/admin/students", `/admin/students/${res.id}`, "/admin", "/mentor/mentees");
   return { ok: true, id: res.id };
+}
+
+// SWOC analysis — mentor/staff create or update a mentee's SWOC (one per student).
+export async function upsertSwoc(fd: FormData): Promise<Result> {
+  const sess = await requireRole("MENTOR", "SUPERVISOR", "CHIEF_MENTOR", "SUPER_ADMIN");
+  const studentId = s(fd, "studentId");
+  if (!studentId) return { ok: false, error: "Missing student." };
+  const data = {
+    strengths: sn(fd, "strengths"), weaknesses: sn(fd, "weaknesses"),
+    opportunities: sn(fd, "opportunities"), challenges: sn(fd, "challenges"),
+    updatedById: sess.userId,
+  };
+  await prisma.studentSwoc.upsert({
+    where: { studentId },
+    create: { studentId, ...data },
+    update: data,
+  });
+  await log("UPSERT", "StudentSwoc", studentId);
+  touch(`/admin/students/${studentId}`, `/mentor/mentees/${studentId}`);
+  return { ok: true };
 }
 
 // ============================================================================

@@ -9,6 +9,7 @@ import {
   Users,
   Building2,
   Plus,
+  Pencil,
   Trophy,
   Target,
   FileText,
@@ -17,7 +18,7 @@ import {
 } from "lucide-react";
 import type { GrowthCategory } from "@prisma/client";
 import { prisma } from "@/lib/db";
-import { addGrowthRecord, addAchievement, createGoal, addDocument } from "@/lib/actions";
+import { addGrowthRecord, addAchievement, createGoal, addDocument, saveStudent, upsertSwoc } from "@/lib/actions";
 import { PageHeader, Avatar, Badge, Progress, EmptyState } from "@/components/ui/primitives";
 import { Panel, MiniMetric, ActivityItem } from "@/components/dash/widgets";
 import { StatusBadge } from "@/components/ui/StatusBadge";
@@ -25,6 +26,7 @@ import { TabLinks } from "@/components/ui/Tabs";
 import { Modal } from "@/components/ui/Modal";
 import { ActionForm } from "@/components/ui/ActionForm";
 import { SubmitButton, Field } from "@/components/ui/form";
+import { StudentFormFields } from "../StudentFormFields";
 import { SkillRadarChart, GroupBarChart, CHART_COLORS } from "@/components/ui/charts";
 import { ageFromDob, ageCategory, CATEGORY_LABEL, fmtDate, fmtDateTime, titleCase } from "@/lib/utils";
 
@@ -70,10 +72,17 @@ export default async function StudentProfilePage({
       assessments: { orderBy: { createdAt: "desc" }, include: { template: true } },
       attendance: { orderBy: { session: { scheduledAt: "desc" } }, include: { session: true } },
       reports: { orderBy: { createdAt: "desc" } },
+      swoc: true,
     },
   });
 
   if (!student) notFound();
+
+  const [institutions, mentors, parents] = await Promise.all([
+    prisma.institution.findMany({ orderBy: { name: "asc" }, select: { id: true, name: true } }),
+    prisma.user.findMany({ where: { role: "MENTOR" }, orderBy: { name: "asc" }, select: { id: true, name: true } }),
+    prisma.user.findMany({ where: { role: "PARENT" }, orderBy: { name: "asc" }, select: { id: true, name: true } }),
+  ]);
 
   const age = ageFromDob(student.dob);
   const level = student.ageCategory ?? ageCategory(age);
@@ -129,7 +138,11 @@ export default async function StudentProfilePage({
         </div>
       </div>
 
-      <PageHeader title="Student Master Profile" subtitle="Digital growth portfolio & program records" />
+      <PageHeader
+        title="Student Master Profile"
+        subtitle="Digital growth portfolio & program records"
+        action={<EditStudentModal student={student} institutions={institutions} mentors={mentors} parents={parents} />}
+      />
 
       <TabLinks tabs={TABS} />
 
@@ -164,34 +177,101 @@ function InfoLine({ icon, label, value }: { icon: React.ReactNode; label: string
 // ---------------------------------------------------------------------------
 // PROFILE
 // ---------------------------------------------------------------------------
+type SwocData = { strengths: string | null; weaknesses: string | null; opportunities: string | null; challenges: string | null };
+
+type ProfileStudent = {
+  id: string;
+  gender: string | null; dob: Date | null; className: string | null; rollNo: string | null;
+  bloodGroup: string | null; admissionDate: Date; email: string | null; phone: string | null;
+  city: string | null; address: string | null; notes: string | null;
+  registrationNumber: string | null; yearOfStudy: string | null;
+  fatherOccupation: string | null; motherOccupation: string | null;
+  plusTwoPercentage: string | null; languagesKnown: string | null;
+  interests: string | null; talents: string | null; sports: string | null; cultural: string | null;
+  hobbies: string | null; careerAspiration: string | null; otherTalent: string | null; lifeGoal: string | null;
+  problems: string | null; healthProblems: string | null; mentorRemarks: string | null;
+  swoc: SwocData | null;
+};
+
 function ProfileTab({
   student,
   age,
   level,
 }: {
-  student: { gender: string | null; dob: Date | null; className: string | null; rollNo: string | null; admissionDate: Date; interests: string | null; talents: string | null; notes: string | null };
+  student: ProfileStudent;
   age: number | null;
   level: string | null;
 }) {
+  const aspirations: [string, string | null][] = [
+    ["Career aspiration", student.careerAspiration],
+    ["Life goal", student.lifeGoal],
+    ["Hobbies", student.hobbies],
+    ["Sports", student.sports],
+    ["Cultural", student.cultural],
+    ["Other talent / skill", student.otherTalent],
+  ];
+  const additional: [string, string | null][] = [
+    ["Any problems", student.problems],
+    ["Any health problems", student.healthProblems],
+    ["Mentor's remarks", student.mentorRemarks],
+  ];
+
   return (
     <div className="grid gap-4 lg:grid-cols-3">
-      <Panel title="Personal Details" className="lg:col-span-2">
-        <div className="grid gap-x-6 gap-y-4 sm:grid-cols-2">
-          <Detail label="Gender" value={student.gender ?? "—"} />
-          <Detail label="Date of birth" value={fmtDate(student.dob)} />
-          <Detail label="Age" value={age != null ? `${age} years` : "—"} />
-          <Detail label="Age category" value={level ? CATEGORY_LABEL[level] : "—"} />
-          <Detail label="Class / Grade" value={student.className ?? "—"} />
-          <Detail label="Roll number" value={student.rollNo ?? "—"} />
-          <Detail label="Admission date" value={fmtDate(student.admissionDate)} />
-        </div>
-        {student.notes && (
-          <div className="mt-5 rounded-xl bg-slate-50 p-4 text-sm text-slate-600">
-            <p className="mb-1 font-semibold text-slate-500">Notes</p>
-            {student.notes}
+      <div className="space-y-4 lg:col-span-2">
+        <Panel title="Personal Details">
+          <div className="grid gap-x-6 gap-y-4 sm:grid-cols-2 lg:grid-cols-3">
+            <Detail label="Gender" value={student.gender ?? "—"} />
+            <Detail label="Date of birth" value={fmtDate(student.dob)} />
+            <Detail label="Age" value={age != null ? `${age} years` : "—"} />
+            <Detail label="Age category" value={level ? CATEGORY_LABEL[level] : "—"} />
+            <Detail label="Registration no." value={student.registrationNumber ?? "—"} />
+            <Detail label="Class / Grade" value={student.className ?? "—"} />
+            <Detail label="Year of study" value={student.yearOfStudy ?? "—"} />
+            <Detail label="Roll number" value={student.rollNo ?? "—"} />
+            <Detail label="Blood group" value={student.bloodGroup ?? "—"} />
+            <Detail label="Email" value={student.email ?? "—"} />
+            <Detail label="Phone" value={student.phone ?? "—"} />
+            <Detail label="City" value={student.city ?? "—"} />
+            <Detail label="Address" value={student.address ?? "—"} />
+            <Detail label="Admission date" value={fmtDate(student.admissionDate)} />
           </div>
-        )}
-      </Panel>
+          {student.notes && (
+            <div className="mt-5 rounded-xl bg-slate-50 p-4 text-sm text-slate-600">
+              <p className="mb-1 font-semibold text-slate-500">Notes</p>
+              {student.notes}
+            </div>
+          )}
+        </Panel>
+
+        <Panel title="Family & Educational Background">
+          <div className="grid gap-x-6 gap-y-4 sm:grid-cols-2">
+            <Detail label="Father's occupation" value={student.fatherOccupation ?? "—"} />
+            <Detail label="Mother's occupation" value={student.motherOccupation ?? "—"} />
+            <Detail label="Marks in +2 (%)" value={student.plusTwoPercentage ?? "—"} />
+            <Detail label="Languages known" value={student.languagesKnown ?? "—"} />
+          </div>
+        </Panel>
+
+        <Panel title="Aspirations">
+          <div className="grid gap-x-6 gap-y-4 sm:grid-cols-2">
+            {aspirations.map(([label, value]) => (
+              <Detail key={label} label={label} value={value ?? "—"} />
+            ))}
+          </div>
+        </Panel>
+
+        <Panel title="Additional Information">
+          <div className="space-y-3">
+            {additional.map(([label, value]) => (
+              <div key={label}>
+                <p className="text-xs font-medium text-slate-400">{label}</p>
+                <p className="mt-0.5 whitespace-pre-wrap text-sm text-slate-700">{value || "—"}</p>
+              </div>
+            ))}
+          </div>
+        </Panel>
+      </div>
 
       <div className="space-y-4">
         <Panel title="Interests">
@@ -220,8 +300,35 @@ function ProfileTab({
             <p className="text-sm text-slate-400">No talents recorded.</p>
           )}
         </Panel>
+        <SwocPanel studentId={student.id} swoc={student.swoc} />
       </div>
     </div>
+  );
+}
+
+function SwocPanel({ studentId, swoc }: { studentId: string; swoc: SwocData | null }) {
+  const items = [
+    { label: "Strengths", value: swoc?.strengths, tone: "text-leaf-700" },
+    { label: "Weaknesses", value: swoc?.weaknesses, tone: "text-red-600" },
+    { label: "Opportunities", value: swoc?.opportunities, tone: "text-navy-700" },
+    { label: "Challenges", value: swoc?.challenges, tone: "text-amber-700" },
+  ];
+  const hasAny = items.some((i) => i.value);
+  return (
+    <Panel title="SWOC Analysis" action={<SwocModal studentId={studentId} swoc={swoc} />}>
+      {hasAny ? (
+        <div className="space-y-3">
+          {items.map((i) => (
+            <div key={i.label}>
+              <p className={`text-xs font-bold uppercase tracking-wide ${i.tone}`}>{i.label}</p>
+              <p className="mt-0.5 whitespace-pre-wrap text-sm text-slate-700">{i.value || "—"}</p>
+            </div>
+          ))}
+        </div>
+      ) : (
+        <p className="text-sm text-slate-400">No SWOC analysis yet. Capture strengths, weaknesses, opportunities & challenges.</p>
+      )}
+    </Panel>
   );
 }
 
@@ -702,6 +809,63 @@ function AddDocumentModal({ studentId }: { studentId: string }) {
           <div className="flex justify-end">
             <SubmitButton>Add document</SubmitButton>
           </div>
+      </ActionForm>
+    </Modal>
+  );
+}
+
+function SwocModal({ studentId, swoc }: { studentId: string; swoc: SwocData | null }) {
+  return (
+    <Modal
+      title="SWOC Analysis"
+      triggerClassName="btn-outline text-xs"
+      triggerLabel={<><Pencil className="h-3.5 w-3.5" /> {swoc ? "Edit" : "Add"}</>}
+    >
+      <ActionForm action={upsertSwoc} className="space-y-4" successMessage="SWOC analysis saved.">
+        <input type="hidden" name="studentId" value={studentId} />
+        <Field label="Strengths">
+          <textarea name="strengths" className="input" rows={2} defaultValue={swoc?.strengths ?? ""} placeholder="What the mentee does well, unique resources…" />
+        </Field>
+        <Field label="Weaknesses">
+          <textarea name="weaknesses" className="input" rows={2} defaultValue={swoc?.weaknesses ?? ""} placeholder="Areas to improve, fewer resources…" />
+        </Field>
+        <Field label="Opportunities">
+          <textarea name="opportunities" className="input" rows={2} defaultValue={swoc?.opportunities ?? ""} placeholder="Openings for personal & professional development…" />
+        </Field>
+        <Field label="Challenges">
+          <textarea name="challenges" className="input" rows={2} defaultValue={swoc?.challenges ?? ""} placeholder="Key challenges & difficulties in overcoming them…" />
+        </Field>
+        <div className="flex justify-end">
+          <SubmitButton>Save SWOC</SubmitButton>
+        </div>
+      </ActionForm>
+    </Modal>
+  );
+}
+
+function EditStudentModal({
+  student,
+  institutions,
+  mentors,
+  parents,
+}: {
+  student: React.ComponentProps<typeof StudentFormFields>["student"];
+  institutions: { id: string; name: string }[];
+  mentors: { id: string; name: string }[];
+  parents: { id: string; name: string }[];
+}) {
+  return (
+    <Modal
+      wide
+      title="Edit Student Profile"
+      triggerClassName="btn-outline"
+      triggerLabel={<><Pencil className="h-4 w-4" /> Edit profile</>}
+    >
+      <ActionForm action={saveStudent} className="space-y-4" successMessage="Profile updated.">
+        <StudentFormFields student={student} institutions={institutions} mentors={mentors} parents={parents} />
+        <div className="flex justify-end gap-2 pt-2">
+          <SubmitButton>Save changes</SubmitButton>
+        </div>
       </ActionForm>
     </Modal>
   );
