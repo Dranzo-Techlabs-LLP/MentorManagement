@@ -2,7 +2,7 @@
 
 import { Suspense, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { Loader2, ArrowRight } from "lucide-react";
+import { Loader2, ArrowRight, HeartHandshake } from "lucide-react";
 import { Logo } from "@/components/brand/Logo";
 
 const DEMO = [
@@ -44,6 +44,16 @@ function LoginForm() {
 
   return (
     <div className="grid min-h-screen lg:grid-cols-2">
+      {/* Floating donate button */}
+      <a
+        href="/donate"
+        aria-label="Donate Us"
+        className="fixed bottom-6 right-6 z-40 flex items-center gap-2 rounded-full bg-gold px-5 py-3 text-sm font-bold text-white shadow-lg shadow-gold/40 transition hover:brightness-110 focus:outline-none focus:ring-4 focus:ring-gold/30"
+      >
+        <HeartHandshake className="h-5 w-5" />
+        <span className="hidden sm:inline">Donate Us</span>
+      </a>
+
       {/* Brand panel */}
       <div className="relative hidden flex-col justify-between overflow-hidden bg-navy p-12 text-white lg:flex">
         <div
