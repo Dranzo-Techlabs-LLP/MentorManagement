@@ -1,7 +1,10 @@
 import { NextResponse } from "next/server";
 import { destroySession } from "@/lib/auth";
 
-export async function POST(req: Request) {
+export async function POST() {
   await destroySession();
-  return NextResponse.redirect(new URL("/login", req.url));
+  // Relative Location + 303 → the browser resolves it against the current
+  // origin (works behind a reverse proxy and in dev; avoids wrong host/scheme),
+  // and 303 makes the follow-up request a GET.
+  return new NextResponse(null, { status: 303, headers: { Location: "/login" } });
 }
