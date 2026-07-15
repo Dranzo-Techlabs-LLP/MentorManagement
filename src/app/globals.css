@@ -43,6 +43,9 @@ body {
   .btn-ghost {
     @apply btn text-slate-600 hover:bg-slate-100;
   }
+  .btn-danger {
+    @apply btn bg-red-600 text-white hover:bg-red-700 focus:ring-red-600;
+  }
   .input {
     @apply w-full rounded-lg border border-slate-300 px-3 py-2 text-sm text-slate-900 placeholder:text-slate-400 focus:border-navy focus:outline-none focus:ring-1 focus:ring-navy;
   }

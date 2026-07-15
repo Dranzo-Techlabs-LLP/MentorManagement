@@ -1,7 +1,7 @@
 import { CheckCircle2, XCircle } from "lucide-react";
 import type { Prisma, ApplicationStatus } from "@prisma/client";
 import { prisma } from "@/lib/db";
-import { approveApplication, rejectApplication } from "@/lib/actions";
+import { approveApplication, rejectApplication, deleteApplication } from "@/lib/actions";
 import { PageHeader } from "@/components/ui/primitives";
 import { Panel } from "@/components/dash/widgets";
 import { DataTable } from "@/components/ui/DataTable";
@@ -9,7 +9,9 @@ import { TabLinks } from "@/components/ui/Tabs";
 import { StatusBadge } from "@/components/ui/StatusBadge";
 import { Modal } from "@/components/ui/Modal";
 import { ActionForm } from "@/components/ui/ActionForm";
+import { ConfirmDeleteButton } from "@/components/ui/ConfirmDeleteButton";
 import { SubmitButton, Field } from "@/components/ui/form";
+import { Pagination } from "@/components/ui/Pagination";
 import { fmtDate } from "@/lib/utils";
 
 const TABS = [
@@ -26,17 +28,23 @@ const TAB_STATUS: Record<string, ApplicationStatus | undefined> = {
   all: undefined,
 };
 
+const PAGE_SIZE = 10;
+
 export default async function ApplicationsPage({
   searchParams,
 }: {
-  searchParams: Promise<{ tab?: string }>;
+  searchParams: Promise<{ tab?: string; page?: string }>;
 }) {
-  const { tab } = await searchParams;
+  const { tab, page: pageParam } = await searchParams;
   const status = TAB_STATUS[tab ?? "pending"];
   const where: Prisma.ParentApplicationWhereInput = status ? { status } : {};
+  const page = Math.max(1, Number(pageParam) || 1);
 
-  const [applications, mentors, institutions] = await Promise.all([
-    prisma.parentApplication.findMany({ where, orderBy: { createdAt: "desc" } }),
+  const [applications, total, mentors, institutions] = await Promise.all([
+    prisma.parentApplication.findMany({
+      where, orderBy: { createdAt: "desc" }, skip: (page - 1) * PAGE_SIZE, take: PAGE_SIZE,
+    }),
+    prisma.parentApplication.count({ where }),
     prisma.user.findMany({ where: { role: "MENTOR" }, orderBy: { name: "asc" } }),
     prisma.institution.findMany({ orderBy: { name: "asc" } }),
   ]);
@@ -77,18 +85,28 @@ export default async function ApplicationsPage({
             { header: "Status", cell: (a) => <StatusBadge status={a.status} /> },
             {
               header: "Actions",
-              cell: (a) =>
-                a.status === "PENDING" ? (
-                  <div className="flex items-center gap-1.5">
-                    <ApproveModal id={a.id} studentName={a.studentName} mentors={mentors} institutions={institutions} />
-                    <RejectModal id={a.id} studentName={a.studentName} />
-                  </div>
-                ) : (
-                  <span className="text-xs text-slate-400">{a.reviewNote ? `Note: ${a.reviewNote}` : "Processed"}</span>
-                ),
+              cell: (a) => (
+                <div className="flex items-center gap-1.5">
+                  {a.status === "PENDING" ? (
+                    <>
+                      <ApproveModal id={a.id} studentName={a.studentName} mentors={mentors} institutions={institutions} />
+                      <RejectModal id={a.id} studentName={a.studentName} />
+                    </>
+                  ) : (
+                    <span className="text-xs text-slate-400">{a.reviewNote ? `Note: ${a.reviewNote}` : "Processed"}</span>
+                  )}
+                  <ConfirmDeleteButton
+                    action={deleteApplication}
+                    hiddenFields={{ id: a.id }}
+                    itemLabel={`${a.studentName}'s application`}
+                    triggerClassName="btn-ghost text-xs text-red-600"
+                  />
+                </div>
+              ),
             },
           ]}
         />
+        <Pagination page={page} pageSize={PAGE_SIZE} total={total} basePath="/admin/applications" searchParams={{ tab }} />
       </Panel>
     </>
   );

@@ -12,23 +12,30 @@ import { Modal } from "@/components/ui/Modal";
 import { ActionForm } from "@/components/ui/ActionForm";
 import { SubmitButton } from "@/components/ui/form";
 import { StudentFormFields } from "./StudentFormFields";
+import { Pagination } from "@/components/ui/Pagination";
 import { CATEGORY_LABEL } from "@/lib/utils";
+
+const PAGE_SIZE = 10;
 
 export default async function StudentsPage({
   searchParams,
 }: {
-  searchParams: Promise<{ q?: string }>;
+  searchParams: Promise<{ q?: string; page?: string }>;
 }) {
-  const { q } = await searchParams;
+  const { q, page: pageParam } = await searchParams;
+  const page = Math.max(1, Number(pageParam) || 1);
 
   const where: Prisma.StudentWhereInput = q ? { fullName: { contains: q } } : {};
 
-  const [students, institutions, mentors, parents] = await Promise.all([
+  const [students, total, institutions, mentors, parents] = await Promise.all([
     prisma.student.findMany({
       where,
       orderBy: { createdAt: "desc" },
+      skip: (page - 1) * PAGE_SIZE,
+      take: PAGE_SIZE,
       include: { institution: true, mentor: true },
     }),
+    prisma.student.count({ where }),
     prisma.institution.findMany({ orderBy: { name: "asc" } }),
     prisma.user.findMany({ where: { role: "MENTOR" }, orderBy: { name: "asc" } }),
     prisma.user.findMany({ where: { role: "PARENT" }, orderBy: { name: "asc" } }),
@@ -75,10 +82,21 @@ export default async function StudentsPage({
               ),
             },
             { header: "Institution", cell: (s) => <span className="text-slate-600">{s.institution?.name ?? "—"}</span> },
-            { header: "Mentor", cell: (s) => <span className="text-slate-600">{s.mentor?.name ?? "—"}</span> },
+            {
+              header: "Mentor",
+              cell: (s) =>
+                s.mentor ? (
+                  <Link href={`/admin/mentors/${s.mentor.id}`} className="text-navy hover:underline">
+                    {s.mentor.name}
+                  </Link>
+                ) : (
+                  <span className="text-slate-400">Unassigned</span>
+                ),
+            },
             { header: "Status", cell: (s) => <StatusBadge status={s.status} /> },
           ]}
         />
+        <Pagination page={page} pageSize={PAGE_SIZE} total={total} basePath="/admin/students" searchParams={{ q }} />
       </Panel>
     </>
   );

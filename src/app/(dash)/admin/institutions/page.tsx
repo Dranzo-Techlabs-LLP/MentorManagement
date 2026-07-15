@@ -1,22 +1,37 @@
 import { Building2, Plus, Pencil } from "lucide-react";
 import type { Institution, InstitutionType } from "@prisma/client";
 import { prisma } from "@/lib/db";
-import { saveInstitution } from "@/lib/actions";
+import { saveInstitution, deleteInstitution } from "@/lib/actions";
 import { PageHeader, Badge } from "@/components/ui/primitives";
 import { Panel } from "@/components/dash/widgets";
 import { DataTable } from "@/components/ui/DataTable";
 import { Modal } from "@/components/ui/Modal";
 import { ActionForm } from "@/components/ui/ActionForm";
+import { ConfirmDeleteButton } from "@/components/ui/ConfirmDeleteButton";
 import { SubmitButton, Field } from "@/components/ui/form";
+import { Pagination } from "@/components/ui/Pagination";
 import { titleCase } from "@/lib/utils";
 
 const TYPES: InstitutionType[] = ["SCHOOL", "MAHALL", "COLLEGE", "NDHR_CLIENT", "OTHER"];
+const PAGE_SIZE = 10;
 
-export default async function InstitutionsPage() {
-  const institutions = await prisma.institution.findMany({
-    orderBy: { name: "asc" },
-    include: { _count: { select: { students: true, users: true } } },
-  });
+export default async function InstitutionsPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ page?: string }>;
+}) {
+  const { page: pageParam } = await searchParams;
+  const page = Math.max(1, Number(pageParam) || 1);
+
+  const [institutions, total] = await Promise.all([
+    prisma.institution.findMany({
+      orderBy: { name: "asc" },
+      skip: (page - 1) * PAGE_SIZE,
+      take: PAGE_SIZE,
+      include: { _count: { select: { students: true, users: true } } },
+    }),
+    prisma.institution.count(),
+  ]);
 
   return (
     <>
@@ -62,17 +77,31 @@ export default async function InstitutionsPage() {
             {
               header: "Actions",
               cell: (i) => (
-                <Modal
-                  title="Edit Institution"
-                  triggerClassName="btn-ghost text-xs"
-                  triggerLabel={<><Pencil className="h-3.5 w-3.5" /> Edit</>}
-                >
-                  <InstitutionForm institution={i} />
-                </Modal>
+                <div className="flex items-center gap-1">
+                  <Modal
+                    title="Edit Institution"
+                    triggerClassName="btn-ghost text-xs"
+                    triggerLabel={<><Pencil className="h-3.5 w-3.5" /> Edit</>}
+                  >
+                    <InstitutionForm institution={i} />
+                  </Modal>
+                  <ConfirmDeleteButton
+                    action={deleteInstitution}
+                    hiddenFields={{ id: i.id }}
+                    itemLabel={i.name}
+                    warning={
+                      i._count.students + i._count.users > 0
+                        ? `${i._count.students} student(s) and ${i._count.users} staff account(s) are linked to this institution — they will just lose this affiliation, not be deleted. This is permanent.`
+                        : "This is permanent and cannot be undone."
+                    }
+                    triggerClassName="btn-ghost text-xs text-red-600"
+                  />
+                </div>
               ),
             },
           ]}
         />
+        <Pagination page={page} pageSize={PAGE_SIZE} total={total} basePath="/admin/institutions" searchParams={{}} />
       </Panel>
     </>
   );

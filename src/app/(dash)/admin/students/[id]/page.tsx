@@ -17,11 +17,17 @@ import {
   CalendarClock,
   Sparkles,
   FolderOpen,
+  Trash2,
 } from "lucide-react";
 import type { GrowthCategory } from "@prisma/client";
 import { prisma } from "@/lib/db";
-import { addGrowthRecord, addAchievement, createGoal, addDocument, saveStudent, upsertSwoc, addMonthlyUpdate, assignMentor } from "@/lib/actions";
+import {
+  addGrowthRecord, deleteGrowthRecord, addAchievement, updateAchievement, deleteAchievement,
+  createGoal, updateGoal, deleteGoal, addDocument, updateDocument, deleteDocument,
+  saveStudent, deleteStudent, upsertSwoc, addMonthlyUpdate, assignMentor,
+} from "@/lib/actions";
 import { PageHeader, Avatar, Badge, Progress, EmptyState } from "@/components/ui/primitives";
+import { ConfirmDeleteButton } from "@/components/ui/ConfirmDeleteButton";
 import { Panel, MiniMetric, ActivityItem } from "@/components/dash/widgets";
 import { StatusBadge } from "@/components/ui/StatusBadge";
 import { TabLinks } from "@/components/ui/Tabs";
@@ -137,7 +143,12 @@ export default async function StudentProfilePage({
             </p>
 
             <div className="mt-4 grid gap-3 text-sm sm:grid-cols-2 lg:grid-cols-3">
-              <InfoLine icon={<GraduationCap className="h-4 w-4" />} label="Mentor" value={student.mentor?.name ?? "Unassigned"} />
+              <InfoLine
+                icon={<GraduationCap className="h-4 w-4" />}
+                label="Mentor"
+                value={student.mentor?.name ?? "Unassigned"}
+                href={student.mentor ? `/admin/mentors/${student.mentor.id}` : undefined}
+              />
               <InfoLine icon={<Users className="h-4 w-4" />} label="Parent" value={student.parent?.name ?? "—"} />
               <InfoLine icon={<Building2 className="h-4 w-4" />} label="Institution" value={student.institution?.name ?? "—"} />
               <InfoLine icon={<Mail className="h-4 w-4" />} label="Email" value={student.email ?? "—"} />
@@ -151,7 +162,18 @@ export default async function StudentProfilePage({
       <PageHeader
         title="Student Master Profile"
         subtitle="Digital growth portfolio & program records"
-        action={<EditStudentModal student={student} institutions={institutions} mentors={mentors} parents={parents} />}
+        action={
+          <div className="flex flex-wrap items-center gap-2">
+            <EditStudentModal student={student} institutions={institutions} mentors={mentors} parents={parents} />
+            <ConfirmDeleteButton
+              action={deleteStudent}
+              hiddenFields={{ id: student.id }}
+              itemLabel={student.fullName}
+              warning="This permanently removes the student and all of their growth records, reports, assessments, goals, tasks and documents. This cannot be undone."
+              triggerClassName="btn-outline text-red-600"
+            />
+          </div>
+        }
       />
 
       <TabLinks tabs={TABS} />
@@ -175,12 +197,18 @@ export default async function StudentProfilePage({
   );
 }
 
-function InfoLine({ icon, label, value }: { icon: React.ReactNode; label: string; value: string }) {
+function InfoLine({ icon, label, value, href }: { icon: React.ReactNode; label: string; value: string; href?: string }) {
   return (
     <div className="flex items-center gap-2">
       <span className="text-slate-400">{icon}</span>
       <span className="text-slate-400">{label}:</span>
-      <span className="truncate font-medium text-slate-700">{value}</span>
+      {href ? (
+        <Link href={href} className="truncate font-medium text-navy hover:underline">
+          {value}
+        </Link>
+      ) : (
+        <span className="truncate font-medium text-slate-700">{value}</span>
+      )}
     </div>
   );
 }
@@ -440,7 +468,7 @@ function PortfolioTab({
 }: {
   student: {
     id: string;
-    goals: { id: string; title: string; description: string | null; progress: number; status: string; targetDate: Date | null }[];
+    goals: { id: string; title: string; description: string | null; category: string | null; progress: number; status: string; targetDate: Date | null }[];
     achievements: { id: string; title: string; description: string | null; category: string | null; date: Date }[];
     growthRecords: { id: string; category: string; title: string; note: string | null; score: number | null; date: Date; recordedBy: { name: string } | null }[];
   };
@@ -493,10 +521,22 @@ function PortfolioTab({
           ) : (
             <div className="space-y-4">
               {student.goals.map((g) => (
-                <div key={g.id}>
+                <div key={g.id} className="group">
                   <div className="mb-1 flex items-center justify-between gap-2">
                     <p className="text-sm font-semibold text-slate-700">{g.title}</p>
-                    <StatusBadge status={g.status} />
+                    <div className="flex items-center gap-1.5">
+                      <StatusBadge status={g.status} />
+                      <span className="flex items-center gap-0.5 opacity-0 transition group-hover:opacity-100">
+                        <EditGoalModal goal={g} />
+                        <ConfirmDeleteButton
+                          action={deleteGoal}
+                          hiddenFields={{ id: g.id }}
+                          itemLabel={g.title}
+                          triggerClassName="btn-ghost px-1.5 py-1 text-xs text-red-600"
+                          triggerLabel={<Trash2 className="h-3.5 w-3.5" />}
+                        />
+                      </span>
+                    </div>
                   </div>
                   {g.description && <p className="mb-1.5 text-xs text-slate-400">{g.description}</p>}
                   <Progress value={g.progress} />
@@ -516,12 +556,24 @@ function PortfolioTab({
           ) : (
             <div className="relative space-y-1 before:absolute before:bottom-2 before:left-[7px] before:top-2 before:w-px before:bg-slate-100">
               {student.achievements.map((a) => (
-                <div key={a.id} className="relative flex gap-3 py-2 pl-0">
+                <div key={a.id} className="group relative flex gap-3 py-2 pl-0">
                   <span className="relative z-10 mt-1 flex h-3.5 w-3.5 items-center justify-center rounded-full bg-gold/20">
                     <Trophy className="h-2.5 w-2.5 text-gold" />
                   </span>
                   <div className="min-w-0 flex-1">
-                    <p className="text-sm font-semibold text-slate-700">{a.title}</p>
+                    <div className="flex items-start justify-between gap-2">
+                      <p className="text-sm font-semibold text-slate-700">{a.title}</p>
+                      <span className="flex shrink-0 items-center gap-0.5 opacity-0 transition group-hover:opacity-100">
+                        <EditAchievementModal achievement={a} />
+                        <ConfirmDeleteButton
+                          action={deleteAchievement}
+                          hiddenFields={{ id: a.id }}
+                          itemLabel={a.title}
+                          triggerClassName="btn-ghost px-1.5 py-1 text-xs text-red-600"
+                          triggerLabel={<Trash2 className="h-3.5 w-3.5" />}
+                        />
+                      </span>
+                    </div>
                     {a.description && <p className="text-xs text-slate-400">{a.description}</p>}
                     <p className="mt-0.5 text-xs text-slate-400">
                       {a.category ? `${a.category} · ` : ""}
@@ -552,7 +604,7 @@ function PortfolioTab({
                   </div>
                   <div className="divide-y divide-slate-50 border-l-2 pl-4" style={{ borderColor: `${color}40` }}>
                     {group.records.map((r) => (
-                      <div key={r.id} className="flex items-start justify-between gap-3 py-2.5">
+                      <div key={r.id} className="group flex items-start justify-between gap-3 py-2.5">
                         <div className="min-w-0">
                           <p className="text-sm font-medium text-slate-700">{r.title}</p>
                           {r.note && <p className="text-xs text-slate-400">{r.note}</p>}
@@ -561,11 +613,22 @@ function PortfolioTab({
                             {r.recordedBy && ` · ${r.recordedBy.name}`}
                           </p>
                         </div>
-                        {r.score != null && (
-                          <span className="shrink-0 rounded-lg bg-slate-50 px-2.5 py-1 text-sm font-bold text-navy">
-                            {r.score}
+                        <div className="flex shrink-0 items-center gap-2">
+                          {r.score != null && (
+                            <span className="rounded-lg bg-slate-50 px-2.5 py-1 text-sm font-bold text-navy">
+                              {r.score}
+                            </span>
+                          )}
+                          <span className="opacity-0 transition group-hover:opacity-100">
+                            <ConfirmDeleteButton
+                              action={deleteGrowthRecord}
+                              hiddenFields={{ id: r.id }}
+                              itemLabel={r.title}
+                              triggerClassName="btn-ghost px-1.5 py-1 text-xs text-red-600"
+                              triggerLabel={<Trash2 className="h-3.5 w-3.5" />}
+                            />
                           </span>
-                        )}
+                        </div>
                       </div>
                     ))}
                   </div>
@@ -749,9 +812,18 @@ function DocumentsTab({
                   </p>
                 </div>
               </div>
-              <a href={d.fileUrl} target="_blank" rel="noreferrer" className="btn-ghost text-xs">
-                Open
-              </a>
+              <div className="flex shrink-0 items-center gap-1">
+                <a href={d.fileUrl} target="_blank" rel="noreferrer" className="btn-ghost text-xs">
+                  Open
+                </a>
+                <EditDocumentModal doc={d} />
+                <ConfirmDeleteButton
+                  action={deleteDocument}
+                  hiddenFields={{ id: d.id }}
+                  itemLabel={d.title}
+                  triggerClassName="btn-ghost text-xs text-red-600"
+                />
+              </div>
             </div>
           ))}
         </div>
@@ -824,6 +896,32 @@ function AddAchievementModal({ studentId }: { studentId: string }) {
   );
 }
 
+function EditAchievementModal({
+  achievement,
+}: {
+  achievement: { id: string; title: string; description: string | null; category: string | null };
+}) {
+  return (
+    <Modal title="Edit Achievement" triggerClassName="btn-ghost px-1.5 py-1 text-xs" triggerLabel={<Pencil className="h-3.5 w-3.5" />}>
+      <ActionForm action={updateAchievement} className="space-y-4" successMessage="Achievement updated.">
+        <input type="hidden" name="id" value={achievement.id} />
+        <Field label="Title">
+          <input name="title" className="input" required defaultValue={achievement.title} />
+        </Field>
+        <Field label="Category">
+          <input name="category" className="input" defaultValue={achievement.category ?? ""} placeholder="Leadership, Academic, Sports…" />
+        </Field>
+        <Field label="Description">
+          <textarea name="description" className="input" rows={3} defaultValue={achievement.description ?? ""} />
+        </Field>
+        <div className="flex justify-end">
+          <SubmitButton>Save changes</SubmitButton>
+        </div>
+      </ActionForm>
+    </Modal>
+  );
+}
+
 function CreateGoalModal({ studentId }: { studentId: string }) {
   return (
     <Modal
@@ -860,6 +958,40 @@ function CreateGoalModal({ studentId }: { studentId: string }) {
           <div className="flex justify-end">
             <SubmitButton>Create goal</SubmitButton>
           </div>
+      </ActionForm>
+    </Modal>
+  );
+}
+
+function EditGoalModal({
+  goal,
+}: {
+  goal: { id: string; title: string; description: string | null; category: string | null; targetDate: Date | null };
+}) {
+  return (
+    <Modal title="Edit Goal" triggerClassName="btn-ghost px-1.5 py-1 text-xs" triggerLabel={<Pencil className="h-3.5 w-3.5" />}>
+      <ActionForm action={updateGoal} className="space-y-4" successMessage="Goal updated.">
+        <input type="hidden" name="id" value={goal.id} />
+        <Field label="Goal title">
+          <input name="title" className="input" required defaultValue={goal.title} />
+        </Field>
+        <Field label="Description">
+          <textarea name="description" className="input" rows={3} defaultValue={goal.description ?? ""} />
+        </Field>
+        <div className="grid gap-4 sm:grid-cols-2">
+          <Field label="Category">
+            <select name="category" className="input" defaultValue={goal.category ?? ""}>
+              <option value="">— None —</option>
+              {GROWTH_CATEGORIES.map((c) => <option key={c} value={c}>{titleCase(c)}</option>)}
+            </select>
+          </Field>
+          <Field label="Target date">
+            <input name="targetDate" type="date" className="input" defaultValue={goal.targetDate ? new Date(goal.targetDate).toISOString().slice(0, 10) : ""} />
+          </Field>
+        </div>
+        <div className="flex justify-end">
+          <SubmitButton>Save changes</SubmitButton>
+        </div>
       </ActionForm>
     </Modal>
   );
@@ -1016,6 +1148,28 @@ function AddMonthlyUpdateModal({ studentId }: { studentId: string }) {
         </Field>
         <div className="flex justify-end">
           <SubmitButton>Save update</SubmitButton>
+        </div>
+      </ActionForm>
+    </Modal>
+  );
+}
+
+function EditDocumentModal({ doc }: { doc: { id: string; title: string; type: string } }) {
+  const types = ["PHOTO", "ID_PROOF", "MARKSHEET", "CONSENT_FORM", "CERTIFICATE", "SESSION_NOTE", "ASSESSMENT_REPORT", "OTHER"];
+  return (
+    <Modal title="Edit Document" triggerClassName="btn-ghost text-xs" triggerLabel={<><Pencil className="h-3.5 w-3.5" /> Edit</>}>
+      <ActionForm action={updateDocument} className="space-y-4" successMessage="Document updated.">
+        <input type="hidden" name="id" value={doc.id} />
+        <Field label="Type">
+          <select name="type" className="input" required defaultValue={doc.type}>
+            {types.map((t) => <option key={t} value={t}>{titleCase(t)}</option>)}
+          </select>
+        </Field>
+        <Field label="Title">
+          <input name="title" className="input" required defaultValue={doc.title} />
+        </Field>
+        <div className="flex justify-end">
+          <SubmitButton>Save changes</SubmitButton>
         </div>
       </ActionForm>
     </Modal>

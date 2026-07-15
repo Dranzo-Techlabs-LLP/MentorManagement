@@ -1,12 +1,14 @@
-import { Megaphone, Plus, Pin } from "lucide-react";
-import type { Audience } from "@prisma/client";
+import { Megaphone, Plus, Pin, Pencil } from "lucide-react";
+import type { Announcement, Audience } from "@prisma/client";
 import { prisma } from "@/lib/db";
-import { createAnnouncement } from "@/lib/actions";
+import { createAnnouncement, updateAnnouncement, deleteAnnouncement } from "@/lib/actions";
 import { PageHeader, Badge, EmptyState } from "@/components/ui/primitives";
 import { Panel } from "@/components/dash/widgets";
 import { Modal } from "@/components/ui/Modal";
 import { ActionForm } from "@/components/ui/ActionForm";
+import { ConfirmDeleteButton } from "@/components/ui/ConfirmDeleteButton";
 import { SubmitButton, Field } from "@/components/ui/form";
+import { Pagination } from "@/components/ui/Pagination";
 import { fmtDateTime, titleCase } from "@/lib/utils";
 
 const AUDIENCES: Audience[] = [
@@ -18,12 +20,24 @@ const AUDIENCES: Audience[] = [
   "STUDENTS",
   "INSTITUTION",
 ];
+const PAGE_SIZE = 10;
 
-export default async function AnnouncementsPage() {
-  const announcements = await prisma.announcement.findMany({
-    orderBy: [{ pinned: "desc" }, { createdAt: "desc" }],
-    include: { author: true },
-  });
+export default async function AnnouncementsPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ page?: string }>;
+}) {
+  const { page: pageParam } = await searchParams;
+  const page = Math.max(1, Number(pageParam) || 1);
+
+  const [announcements, total] = await Promise.all([
+    prisma.announcement.findMany({
+      orderBy: [{ pinned: "desc" }, { createdAt: "desc" }],
+      skip: (page - 1) * PAGE_SIZE, take: PAGE_SIZE,
+      include: { author: true },
+    }),
+    prisma.announcement.count(),
+  ]);
 
   return (
     <>
@@ -64,12 +78,24 @@ export default async function AnnouncementsPage() {
                     </p>
                   </div>
                 </div>
+                <div className="flex shrink-0 items-center gap-1">
+                  <EditAnnouncementModal announcement={a} />
+                  <ConfirmDeleteButton
+                    action={deleteAnnouncement}
+                    hiddenFields={{ id: a.id }}
+                    itemLabel={a.title}
+                    triggerClassName="btn-ghost text-xs text-red-600"
+                  />
+                </div>
               </div>
               <p className="mt-3 whitespace-pre-line text-sm text-slate-600">{a.body}</p>
             </div>
           ))}
         </div>
       )}
+      <Panel className="mt-4">
+        <Pagination page={page} pageSize={PAGE_SIZE} total={total} basePath="/admin/announcements" searchParams={{}} />
+      </Panel>
     </>
   );
 }
@@ -104,6 +130,38 @@ function NewAnnouncementModal() {
           <div className="flex justify-end">
             <SubmitButton>Publish announcement</SubmitButton>
           </div>
+      </ActionForm>
+    </Modal>
+  );
+}
+
+function EditAnnouncementModal({ announcement }: { announcement: Announcement }) {
+  return (
+    <Modal
+      title="Edit Announcement"
+      triggerClassName="btn-ghost text-xs"
+      triggerLabel={<><Pencil className="h-3.5 w-3.5" /> Edit</>}
+    >
+      <ActionForm action={updateAnnouncement} className="space-y-4" successMessage="Announcement updated.">
+        <input type="hidden" name="id" value={announcement.id} />
+        <Field label="Title">
+          <input name="title" className="input" required defaultValue={announcement.title} />
+        </Field>
+        <Field label="Message">
+          <textarea name="body" className="input" rows={5} required defaultValue={announcement.body} />
+        </Field>
+        <Field label="Audience">
+          <select name="audience" className="input" defaultValue={announcement.audience}>
+            {AUDIENCES.map((a) => <option key={a} value={a}>{titleCase(a)}</option>)}
+          </select>
+        </Field>
+        <label className="flex items-center gap-2 text-sm font-medium text-slate-600">
+          <input type="checkbox" name="pinned" className="h-4 w-4 rounded border-slate-300" defaultChecked={announcement.pinned} />
+          Pin to top
+        </label>
+        <div className="flex justify-end">
+          <SubmitButton>Save changes</SubmitButton>
+        </div>
       </ActionForm>
     </Modal>
   );

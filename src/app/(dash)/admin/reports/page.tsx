@@ -1,14 +1,16 @@
 import { CheckCircle2 } from "lucide-react";
 import type { Prisma, ReportStatus } from "@prisma/client";
 import { prisma } from "@/lib/db";
-import { reviewReport } from "@/lib/actions";
+import { reviewReport, deleteReport } from "@/lib/actions";
 import { PageHeader, Avatar } from "@/components/ui/primitives";
 import { Panel } from "@/components/dash/widgets";
 import { DataTable } from "@/components/ui/DataTable";
 import { TabLinks } from "@/components/ui/Tabs";
 import { StatusBadge } from "@/components/ui/StatusBadge";
 import { ActionForm } from "@/components/ui/ActionForm";
+import { ConfirmDeleteButton } from "@/components/ui/ConfirmDeleteButton";
 import { SubmitButton } from "@/components/ui/form";
+import { Pagination } from "@/components/ui/Pagination";
 import { titleCase } from "@/lib/utils";
 
 const TABS = [
@@ -23,20 +25,25 @@ const TAB_STATUS: Record<string, ReportStatus | undefined> = {
   all: undefined,
 };
 
+const PAGE_SIZE = 10;
+
 export default async function ReportsPage({
   searchParams,
 }: {
-  searchParams: Promise<{ tab?: string }>;
+  searchParams: Promise<{ tab?: string; page?: string }>;
 }) {
-  const { tab } = await searchParams;
+  const { tab, page: pageParam } = await searchParams;
   const status = TAB_STATUS[tab ?? "pending"];
   const where: Prisma.ProgressReportWhereInput = status ? { status } : {};
+  const page = Math.max(1, Number(pageParam) || 1);
 
-  const reports = await prisma.progressReport.findMany({
-    where,
-    orderBy: { createdAt: "desc" },
-    include: { student: true, submittedBy: true },
-  });
+  const [reports, total] = await Promise.all([
+    prisma.progressReport.findMany({
+      where, orderBy: { createdAt: "desc" }, skip: (page - 1) * PAGE_SIZE, take: PAGE_SIZE,
+      include: { student: true, submittedBy: true },
+    }),
+    prisma.progressReport.count({ where }),
+  ]);
 
   return (
     <>
@@ -66,20 +73,28 @@ export default async function ReportsPage({
             { header: "Status", cell: (r) => <StatusBadge status={r.status} /> },
             {
               header: "Actions",
-              cell: (r) =>
-                r.status === "PENDING" ? (
-                  <ActionForm action={reviewReport} className="inline-flex">
-                    <input type="hidden" name="id" value={r.id} />
-                    <SubmitButton className="btn-green text-xs" pendingText="…">
-                      <CheckCircle2 className="h-3.5 w-3.5" /> Mark reviewed
-                    </SubmitButton>
-                  </ActionForm>
-                ) : (
-                  <span className="text-xs text-slate-400">—</span>
-                ),
+              cell: (r) => (
+                <div className="flex items-center gap-1.5">
+                  {r.status === "PENDING" && (
+                    <ActionForm action={reviewReport} className="inline-flex">
+                      <input type="hidden" name="id" value={r.id} />
+                      <SubmitButton className="btn-green text-xs" pendingText="…">
+                        <CheckCircle2 className="h-3.5 w-3.5" /> Mark reviewed
+                      </SubmitButton>
+                    </ActionForm>
+                  )}
+                  <ConfirmDeleteButton
+                    action={deleteReport}
+                    hiddenFields={{ id: r.id }}
+                    itemLabel={r.title}
+                    triggerClassName="btn-ghost text-xs text-red-600"
+                  />
+                </div>
+              ),
             },
           ]}
         />
+        <Pagination page={page} pageSize={PAGE_SIZE} total={total} basePath="/admin/reports" searchParams={{ tab }} />
       </Panel>
     </>
   );

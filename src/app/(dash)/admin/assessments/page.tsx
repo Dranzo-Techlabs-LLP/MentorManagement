@@ -1,10 +1,22 @@
-import { FileBarChart, ClipboardList, CheckCircle2 } from "lucide-react";
+import { FileBarChart, ClipboardList, CheckCircle2, Plus, Pencil, Power } from "lucide-react";
+import type { AssessmentTemplate, AssessmentLevel, AssessmentCategory } from "@prisma/client";
 import { prisma } from "@/lib/db";
+import { saveAssessmentTemplate, setTemplateActive, deleteAssessmentTemplate } from "@/lib/actions";
 import { PageHeader, StatCard, Badge, Avatar } from "@/components/ui/primitives";
 import { Panel } from "@/components/dash/widgets";
 import { DataTable } from "@/components/ui/DataTable";
 import { DonutChart } from "@/components/ui/charts";
+import { Modal } from "@/components/ui/Modal";
+import { ActionForm } from "@/components/ui/ActionForm";
+import { ConfirmDeleteButton } from "@/components/ui/ConfirmDeleteButton";
+import { SubmitButton, Field } from "@/components/ui/form";
 import { CATEGORY_LABEL, fmtDate, titleCase } from "@/lib/utils";
+
+const LEVELS: AssessmentLevel[] = ["LEVEL_1", "LEVEL_2", "LEVEL_3", "GENERAL"];
+const CATEGORIES: AssessmentCategory[] = [
+  "SELF_DISCOVERY", "TALENT_DISCOVERY", "CAREER_APTITUDE", "MULTIPLE_INTELLIGENCE",
+  "LEARNING_STYLE", "PERSONALITY", "STRENGTH", "LEADERSHIP",
+];
 
 export default async function AssessmentsPage() {
   const [templates, statusCounts, recentCompleted, totalAssigned] = await Promise.all([
@@ -58,7 +70,7 @@ export default async function AssessmentsPage() {
       </div>
 
       <div className="mt-4">
-        <Panel title="Assessment Templates">
+        <Panel title="Assessment Templates" action={<TemplateModal />}>
           <DataTable
             rows={templates}
             getKey={(t) => t.id}
@@ -100,6 +112,32 @@ export default async function AssessmentsPage() {
               {
                 header: "Instances",
                 cell: (t) => <span className="font-medium text-slate-600">{t._count.instances}</span>,
+              },
+              {
+                header: "Actions",
+                cell: (t) => (
+                  <div className="flex items-center gap-1">
+                    <TemplateModal template={t} />
+                    <ActionForm action={setTemplateActive} className="inline-flex">
+                      <input type="hidden" name="id" value={t.id} />
+                      <input type="hidden" name="isActive" value={t.isActive ? "false" : "true"} />
+                      <SubmitButton className={t.isActive ? "btn-ghost text-xs text-red-600" : "btn-ghost text-xs text-leaf-700"} pendingText="…">
+                        <Power className="h-3.5 w-3.5" /> {t.isActive ? "Deactivate" : "Activate"}
+                      </SubmitButton>
+                    </ActionForm>
+                    <ConfirmDeleteButton
+                      action={deleteAssessmentTemplate}
+                      hiddenFields={{ id: t.id }}
+                      itemLabel={t.title}
+                      warning={
+                        t._count.instances > 0
+                          ? `${t._count.instances} student assessment(s) use this template and must be cleared first — deletion will be blocked until then.`
+                          : "This is permanent and cannot be undone."
+                      }
+                      triggerClassName="btn-ghost text-xs text-red-600"
+                    />
+                  </div>
+                ),
               },
             ]}
           />
@@ -147,5 +185,61 @@ function Legend({ color, label, value }: { color: string; label: string; value: 
       </span>
       <span className="font-semibold text-slate-700">{value}</span>
     </div>
+  );
+}
+
+function TemplateModal({ template }: { template?: AssessmentTemplate }) {
+  const questionsStr = template ? JSON.stringify(template.questions, null, 2) : "";
+  const scoringStr = template?.scoring ? JSON.stringify(template.scoring, null, 2) : "";
+  return (
+    <Modal
+      wide
+      title={template ? "Edit Assessment Template" : "Add Assessment Template"}
+      triggerClassName={template ? "btn-ghost text-xs" : "btn-primary"}
+      triggerLabel={template ? <><Pencil className="h-3.5 w-3.5" /> Edit</> : <><Plus className="h-4 w-4" /> Add Template</>}
+    >
+      <ActionForm action={saveAssessmentTemplate} className="space-y-4" successMessage={template ? "Template updated." : "Template created."}>
+        {template && <input type="hidden" name="id" value={template.id} />}
+        <div className="grid gap-4 sm:grid-cols-2">
+          <Field label="Title">
+            <input name="title" className="input" required defaultValue={template?.title ?? ""} placeholder="Multiple Intelligence Inventory" />
+          </Field>
+          <Field label="Category">
+            <select name="category" className="input" defaultValue={template?.category ?? "PERSONALITY"}>
+              {CATEGORIES.map((c) => <option key={c} value={c}>{titleCase(c)}</option>)}
+            </select>
+          </Field>
+          <Field label="Level">
+            <select name="level" className="input" defaultValue={template?.level ?? "GENERAL"}>
+              {LEVELS.map((l) => <option key={l} value={l}>{l === "GENERAL" ? "General" : titleCase(l)}</option>)}
+            </select>
+          </Field>
+          <Field label="Duration (mins)">
+            <input name="durationMins" type="number" min={1} className="input" defaultValue={template?.durationMins ?? ""} placeholder="30" />
+          </Field>
+          <Field label="Min age">
+            <input name="ageMin" type="number" min={0} className="input" defaultValue={template?.ageMin ?? ""} placeholder="10" />
+          </Field>
+          <Field label="Max age">
+            <input name="ageMax" type="number" min={0} className="input" defaultValue={template?.ageMax ?? ""} placeholder="18" />
+          </Field>
+        </div>
+        <Field label="Description">
+          <textarea name="description" className="input" rows={2} defaultValue={template?.description ?? ""} />
+        </Field>
+        <Field
+          label="Questions (JSON array)"
+          hint='e.g. [{"id":"q1","text":"I enjoy solving puzzles","options":[{"label":"Strongly agree","value":5,"score":5,"trait":"logical"}]}]'
+        >
+          <textarea name="questions" className="input font-mono text-xs" rows={8} defaultValue={questionsStr} placeholder="[]" />
+        </Field>
+        <Field label="Scoring / interpretation bands (JSON, optional)">
+          <textarea name="scoring" className="input font-mono text-xs" rows={3} defaultValue={scoringStr} />
+        </Field>
+        <div className="flex justify-end">
+          <SubmitButton>{template ? "Save changes" : "Create template"}</SubmitButton>
+        </div>
+      </ActionForm>
+    </Modal>
   );
 }

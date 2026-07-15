@@ -1,12 +1,13 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { writeFile, mkdir } from "fs/promises";
+import { writeFile, mkdir, unlink } from "fs/promises";
 import path from "path";
 import { prisma } from "./db";
 import { getSession, hashPassword, verifyPassword, createSessionCookie } from "./auth";
 import { requireSession, requireRole } from "./guard";
 import { ageFromDob, ageCategory } from "./utils";
+import { studentInputSchema, mentorInputSchema, institutionInputSchema, zodFieldError } from "./validation";
 import type { Prisma, AgeCategory } from "@prisma/client";
 
 type Result = { ok: boolean; error?: string; id?: string };
@@ -118,12 +119,42 @@ export async function rejectApplication(fd: FormData): Promise<Result> {
   return { ok: true };
 }
 
+export async function deleteApplication(fd: FormData): Promise<Result> {
+  await requireRole("SUPER_ADMIN", "CHIEF_MENTOR");
+  const id = s(fd, "id");
+  if (!id) return { ok: false, error: "Missing application." };
+  const app = await prisma.parentApplication.findUnique({ where: { id }, select: { studentName: true } });
+  if (!app) return { ok: false, error: "Application not found." };
+  await prisma.parentApplication.delete({ where: { id } });
+  await log("DELETE", "ParentApplication", id, { studentName: app.studentName });
+  touch("/admin/applications");
+  return { ok: true };
+}
+
 // ============================================================================
 // STUDENTS
 // ============================================================================
 export async function saveStudent(fd: FormData): Promise<Result> {
   await requireRole("SUPER_ADMIN", "CHIEF_MENTOR", "SUPERVISOR");
   const id = sn(fd, "id");
+
+  const parsed = studentInputSchema.safeParse({
+    fullName: s(fd, "fullName"), email: sn(fd, "email"), phone: sn(fd, "phone"), dob: sn(fd, "dob"),
+  });
+  if (!parsed.success) return { ok: false, error: zodFieldError(parsed) };
+
+  const institutionId = sn(fd, "institutionId");
+  const mentorId = sn(fd, "mentorId");
+  const parentId = sn(fd, "parentId");
+  const [inst, mentorUser, parentUser] = await Promise.all([
+    institutionId ? prisma.institution.findUnique({ where: { id: institutionId } }) : null,
+    mentorId ? prisma.user.findUnique({ where: { id: mentorId } }) : null,
+    parentId ? prisma.user.findUnique({ where: { id: parentId } }) : null,
+  ]);
+  if (institutionId && !inst) return { ok: false, error: "Selected institution does not exist." };
+  if (mentorId && (!mentorUser || mentorUser.role !== "MENTOR")) return { ok: false, error: "Selected mentor is invalid." };
+  if (parentId && (!parentUser || parentUser.role !== "PARENT")) return { ok: false, error: "Selected parent is invalid." };
+
   const dob = date(fd, "dob");
   const data = {
     fullName: s(fd, "fullName"), gender: sn(fd, "gender"), dob,
@@ -153,6 +184,23 @@ export async function saveStudent(fd: FormData): Promise<Result> {
   return { ok: true, id: res.id };
 }
 
+export async function deleteStudent(fd: FormData): Promise<Result> {
+  await requireRole("SUPER_ADMIN");
+  const id = s(fd, "id");
+  if (!id) return { ok: false, error: "Missing student." };
+  const student = await prisma.student.findUnique({ where: { id }, select: { fullName: true } });
+  if (!student) return { ok: false, error: "Student not found." };
+
+  try {
+    await prisma.student.delete({ where: { id } });
+  } catch {
+    return { ok: false, error: "Could not delete this student — please try again or contact support." };
+  }
+  await log("DELETE", "Student", id, { fullName: student.fullName });
+  touch("/admin/students", "/mentor/mentees", "/admin");
+  return { ok: true };
+}
+
 // SWOC analysis — mentor/staff create or update a mentee's SWOC (one per student).
 export async function upsertSwoc(fd: FormData): Promise<Result> {
   const sess = await requireRole("MENTOR", "SUPERVISOR", "CHIEF_MENTOR", "SUPER_ADMIN");
@@ -179,27 +227,35 @@ export async function upsertSwoc(fd: FormData): Promise<Result> {
 export async function saveUser(fd: FormData): Promise<Result> {
   await requireRole("SUPER_ADMIN");
   const id = sn(fd, "id");
-  const email = s(fd, "email").toLowerCase();
+
+  const parsed = mentorInputSchema.safeParse({
+    name: s(fd, "name"), email: s(fd, "email"), phone: sn(fd, "phone"), yearsExperience: sn(fd, "yearsExperience"),
+  });
+  if (!parsed.success) return { ok: false, error: zodFieldError(parsed) };
+  const email = parsed.data.email;
+
+  const existing = await prisma.user.findUnique({ where: { email } });
+  if (existing && existing.id !== id) return { ok: false, error: "Email already in use." };
+
   const base = {
-    name: s(fd, "name"), email, role: s(fd, "role") as Prisma.UserCreateInput["role"],
+    name: parsed.data.name, email, role: s(fd, "role") as Prisma.UserCreateInput["role"],
     phone: sn(fd, "phone"), title: sn(fd, "title"), institutionId: sn(fd, "institutionId"),
     managerId: sn(fd, "managerId"),
     // mentor profile & matching
     mentoringMode: (sn(fd, "mentoringMode") || null) as Prisma.UserCreateInput["mentoringMode"],
     city: sn(fd, "city"), timezone: sn(fd, "timezone"), languages: sn(fd, "languages"),
-    exposure: sn(fd, "exposure"), yearsExperience: num(fd, "yearsExperience"),
+    exposure: sn(fd, "exposure"), yearsExperience: parsed.data.yearsExperience ?? null,
   };
   if (id) {
     await prisma.user.update({ where: { id }, data: base });
-    touch("/admin/users", "/admin/mentors");
+    await log("UPDATE", "User", id, { role: base.role });
+    touch("/admin/users", "/admin/mentors", "/chief/mentors", "/supervisor/mentors", `/admin/mentors/${id}`);
     return { ok: true, id };
   }
-  const exists = await prisma.user.findUnique({ where: { email } });
-  if (exists) return { ok: false, error: "Email already in use" };
   const pwd = s(fd, "password") || "Elevate@123";
   const user = await prisma.user.create({ data: { ...base, passwordHash: await hashPassword(pwd) } });
   await log("CREATE", "User", user.id, { role: base.role });
-  touch("/admin/users", "/admin/mentors");
+  touch("/admin/users", "/admin/mentors", "/chief/mentors", "/supervisor/mentors");
   return { ok: true, id: user.id };
 }
 
@@ -207,7 +263,43 @@ export async function setUserStatus(fd: FormData): Promise<Result> {
   await requireRole("SUPER_ADMIN");
   const id = s(fd, "id");
   await prisma.user.update({ where: { id }, data: { status: s(fd, "status") as Prisma.UserUpdateInput["status"] } });
-  touch("/admin/users");
+  touch("/admin/users", "/admin/mentors", `/admin/mentors/${id}`);
+  return { ok: true };
+}
+
+export async function deleteUser(fd: FormData): Promise<Result> {
+  const sess = await requireRole("SUPER_ADMIN");
+  const id = s(fd, "id");
+  if (!id) return { ok: false, error: "Missing user." };
+  if (id === sess.userId) return { ok: false, error: "You cannot delete your own account." };
+
+  const user = await prisma.user.findUnique({ where: { id } });
+  if (!user) return { ok: false, error: "User not found." };
+
+  const [sessionCount, sentMsg, recvMsg] = await Promise.all([
+    prisma.mentoringSession.count({ where: { mentorId: id } }),
+    prisma.message.count({ where: { senderId: id } }),
+    prisma.message.count({ where: { recipientId: id } }),
+  ]);
+  const msgCount = sentMsg + recvMsg;
+  const blockers: string[] = [];
+  if (sessionCount) blockers.push(`${sessionCount} mentoring session${sessionCount > 1 ? "s" : ""}`);
+  if (msgCount) blockers.push(`${msgCount} message${msgCount > 1 ? "s" : ""}`);
+  if (blockers.length) {
+    return {
+      ok: false,
+      error: `Cannot delete — this account has ${blockers.join(" and ")} on record. Deactivate the account instead to preserve that history.`,
+    };
+  }
+
+  try {
+    await prisma.student.updateMany({ where: { mentorId: id }, data: { mentorId: null } });
+    await prisma.user.delete({ where: { id } });
+  } catch {
+    return { ok: false, error: "Could not delete this account — please try again or contact support." };
+  }
+  await log("DELETE", "User", id, { name: user.name, role: user.role });
+  touch("/admin/users", "/admin/mentors", "/admin/students", "/chief/mentors", "/supervisor/mentors");
   return { ok: true };
 }
 
@@ -217,14 +309,36 @@ export async function setUserStatus(fd: FormData): Promise<Result> {
 export async function saveInstitution(fd: FormData): Promise<Result> {
   await requireRole("SUPER_ADMIN");
   const id = sn(fd, "id");
+
+  const parsed = institutionInputSchema.safeParse({ name: s(fd, "name"), contactEmail: sn(fd, "contactEmail") });
+  if (!parsed.success) return { ok: false, error: zodFieldError(parsed) };
+
   const data = {
-    name: s(fd, "name"), type: s(fd, "type") as Prisma.InstitutionCreateInput["type"],
+    name: parsed.data.name, type: s(fd, "type") as Prisma.InstitutionCreateInput["type"],
     city: sn(fd, "city"), address: sn(fd, "address"), contactName: sn(fd, "contactName"),
-    contactPhone: sn(fd, "contactPhone"), contactEmail: sn(fd, "contactEmail"),
+    contactPhone: sn(fd, "contactPhone"), contactEmail: parsed.data.contactEmail || null,
   };
   const res = id ? await prisma.institution.update({ where: { id }, data }) : await prisma.institution.create({ data });
+  await log(id ? "UPDATE" : "CREATE", "Institution", res.id);
   touch("/admin/institutions");
   return { ok: true, id: res.id };
+}
+
+export async function deleteInstitution(fd: FormData): Promise<Result> {
+  await requireRole("SUPER_ADMIN");
+  const id = s(fd, "id");
+  if (!id) return { ok: false, error: "Missing institution." };
+  const inst = await prisma.institution.findUnique({ where: { id }, select: { name: true } });
+  if (!inst) return { ok: false, error: "Institution not found." };
+
+  try {
+    await prisma.institution.delete({ where: { id } });
+  } catch {
+    return { ok: false, error: "Could not delete this institution — please try again or contact support." };
+  }
+  await log("DELETE", "Institution", id, { name: inst.name });
+  touch("/admin/institutions");
+  return { ok: true };
 }
 
 // ============================================================================
@@ -282,6 +396,39 @@ export async function completeSession(fd: FormData): Promise<Result> {
   return { ok: true };
 }
 
+export async function updateSession(fd: FormData): Promise<Result> {
+  await requireRole("MENTOR", "SUPERVISOR", "CHIEF_MENTOR", "SUPER_ADMIN");
+  const id = s(fd, "id");
+  if (!id) return { ok: false, error: "Missing session." };
+  const title = s(fd, "title");
+  if (!title) return { ok: false, error: "Title is required." };
+  await prisma.mentoringSession.update({
+    where: { id },
+    data: {
+      title, type: s(fd, "type") as Prisma.MentoringSessionUpdateInput["type"],
+      topic: sn(fd, "topic"), agenda: sn(fd, "agenda"),
+      scheduledAt: date(fd, "scheduledAt") || undefined,
+      durationMins: num(fd, "durationMins") || 45,
+      meetingLink: sn(fd, "meetingLink"), location: sn(fd, "location"),
+    },
+  });
+  await log("UPDATE", "MentoringSession", id);
+  touch("/mentor/sessions", `/mentor/sessions/${id}`, "/admin/sessions", "/supervisor/sessions");
+  return { ok: true };
+}
+
+export async function deleteSession(fd: FormData): Promise<Result> {
+  await requireRole("SUPERVISOR", "CHIEF_MENTOR", "SUPER_ADMIN");
+  const id = s(fd, "id");
+  if (!id) return { ok: false, error: "Missing session." };
+  const session = await prisma.mentoringSession.findUnique({ where: { id }, select: { title: true } });
+  if (!session) return { ok: false, error: "Session not found." };
+  await prisma.mentoringSession.delete({ where: { id } });
+  await log("DELETE", "MentoringSession", id, { title: session.title });
+  touch("/mentor/sessions", "/admin/sessions", "/supervisor/sessions");
+  return { ok: true };
+}
+
 // ============================================================================
 // REPORTS
 // ============================================================================
@@ -311,6 +458,18 @@ export async function reviewReport(fd: FormData): Promise<Result> {
   await prisma.progressReport.update({ where: { id }, data: { status: "REVIEWED", reviewedById: sess.userId } });
   await log("REVIEW", "ProgressReport", id);
   touch("/supervisor/reports", "/mentor/reports", "/admin/reports");
+  return { ok: true };
+}
+
+export async function deleteReport(fd: FormData): Promise<Result> {
+  await requireRole("SUPERVISOR", "CHIEF_MENTOR", "SUPER_ADMIN");
+  const id = s(fd, "id");
+  if (!id) return { ok: false, error: "Missing report." };
+  const report = await prisma.progressReport.findUnique({ where: { id }, select: { title: true } });
+  if (!report) return { ok: false, error: "Report not found." };
+  await prisma.progressReport.delete({ where: { id } });
+  await log("DELETE", "ProgressReport", id, { title: report.title });
+  touch("/supervisor/reports", "/mentor/reports", "/admin/reports", "/parent/reports");
   return { ok: true };
 }
 
@@ -351,6 +510,21 @@ export async function markMessageRead(fd: FormData): Promise<Result> {
   return { ok: true };
 }
 
+// Deletes the message for both parties — this is a shared inbox row, not per-user soft delete.
+// Only the sender or recipient may remove it.
+export async function deleteMessage(fd: FormData): Promise<Result> {
+  const sess = await requireSession();
+  const id = s(fd, "id");
+  const msg = await prisma.message.findUnique({ where: { id } });
+  if (!msg) return { ok: false, error: "Message not found." };
+  if (msg.senderId !== sess.userId && msg.recipientId !== sess.userId) {
+    return { ok: false, error: "You can only delete your own messages." };
+  }
+  await prisma.message.delete({ where: { id } });
+  touch("/admin/messages", "/mentor/messages", "/parent/messages", "/supervisor/messages", "/chief/messages", "/student/messages");
+  return { ok: true };
+}
+
 export async function createAnnouncement(fd: FormData): Promise<Result> {
   const sess = await requireRole("SUPER_ADMIN", "CHIEF_MENTOR", "SUPERVISOR");
   const a = await prisma.announcement.create({
@@ -362,6 +536,38 @@ export async function createAnnouncement(fd: FormData): Promise<Result> {
   });
   touch("/admin/announcements", "/chief/announcements", "/mentor", "/parent", "/student");
   return { ok: true, id: a.id };
+}
+
+export async function updateAnnouncement(fd: FormData): Promise<Result> {
+  await requireRole("SUPER_ADMIN", "CHIEF_MENTOR", "SUPERVISOR");
+  const id = s(fd, "id");
+  if (!id) return { ok: false, error: "Missing announcement." };
+  const title = s(fd, "title");
+  const body = s(fd, "body");
+  if (!title || !body) return { ok: false, error: "Title and message are required." };
+  await prisma.announcement.update({
+    where: { id },
+    data: {
+      title, body,
+      audience: (s(fd, "audience") || "ALL") as Prisma.AnnouncementUpdateInput["audience"],
+      pinned: fd.get("pinned") === "on",
+    },
+  });
+  await log("UPDATE", "Announcement", id);
+  touch("/admin/announcements", "/chief/announcements", "/mentor", "/parent", "/student");
+  return { ok: true };
+}
+
+export async function deleteAnnouncement(fd: FormData): Promise<Result> {
+  await requireRole("SUPER_ADMIN", "CHIEF_MENTOR");
+  const id = s(fd, "id");
+  if (!id) return { ok: false, error: "Missing announcement." };
+  const a = await prisma.announcement.findUnique({ where: { id }, select: { title: true } });
+  if (!a) return { ok: false, error: "Announcement not found." };
+  await prisma.announcement.delete({ where: { id } });
+  await log("DELETE", "Announcement", id, { title: a.title });
+  touch("/admin/announcements", "/chief/announcements");
+  return { ok: true };
 }
 
 // ============================================================================
@@ -386,6 +592,20 @@ export async function markFeedbackReviewed(fd: FormData): Promise<Result> {
   return { ok: true };
 }
 
+// Feedback text is submitted by a parent/student and isn't editable by staff (that would let staff
+// rewrite someone else's review) — only moderation-delete is offered here, not update.
+export async function deleteFeedback(fd: FormData): Promise<Result> {
+  await requireRole("SUPERVISOR", "CHIEF_MENTOR", "SUPER_ADMIN");
+  const id = s(fd, "id");
+  if (!id) return { ok: false, error: "Missing feedback." };
+  const fb = await prisma.feedback.findUnique({ where: { id } });
+  if (!fb) return { ok: false, error: "Feedback not found." };
+  await prisma.feedback.delete({ where: { id } });
+  await log("DELETE", "Feedback", id);
+  touch("/supervisor/feedback", "/mentor", "/parent/feedback");
+  return { ok: true };
+}
+
 // ============================================================================
 // TASKS & GOALS
 // ============================================================================
@@ -407,6 +627,31 @@ export async function toggleTask(fd: FormData): Promise<Result> {
   const t = await prisma.task.findUnique({ where: { id } });
   await prisma.task.update({ where: { id }, data: { status: t?.status === "DONE" ? "PENDING" : "DONE" } });
   touch("/mentor/tasks", "/student/tasks");
+  return { ok: true };
+}
+
+export async function updateTask(fd: FormData): Promise<Result> {
+  await requireSession();
+  const id = s(fd, "id");
+  if (!id) return { ok: false, error: "Missing task." };
+  const title = s(fd, "title");
+  if (!title) return { ok: false, error: "Title is required." };
+  await prisma.task.update({
+    where: { id },
+    data: { title, description: sn(fd, "description"), dueDate: date(fd, "dueDate") },
+  });
+  touch("/mentor/tasks", "/student/tasks", "/admin/students");
+  return { ok: true };
+}
+
+export async function deleteTask(fd: FormData): Promise<Result> {
+  await requireRole("MENTOR", "SUPERVISOR", "CHIEF_MENTOR", "SUPER_ADMIN");
+  const id = s(fd, "id");
+  if (!id) return { ok: false, error: "Missing task." };
+  const t = await prisma.task.findUnique({ where: { id } });
+  if (!t) return { ok: false, error: "Task not found." };
+  await prisma.task.delete({ where: { id } });
+  touch("/mentor/tasks", "/student/tasks", "/admin/students");
   return { ok: true };
 }
 
@@ -436,6 +681,35 @@ export async function updateGoalProgress(fd: FormData): Promise<Result> {
   return { ok: true };
 }
 
+export async function updateGoal(fd: FormData): Promise<Result> {
+  await requireSession();
+  const id = s(fd, "id");
+  if (!id) return { ok: false, error: "Missing goal." };
+  const title = s(fd, "title");
+  if (!title) return { ok: false, error: "Title is required." };
+  await prisma.goal.update({
+    where: { id },
+    data: {
+      title, description: sn(fd, "description"),
+      category: (sn(fd, "category") || null) as Prisma.GoalUpdateInput["category"],
+      targetDate: date(fd, "targetDate"),
+    },
+  });
+  touch("/student/goals", "/mentor", "/admin/students");
+  return { ok: true };
+}
+
+export async function deleteGoal(fd: FormData): Promise<Result> {
+  await requireRole("MENTOR", "SUPERVISOR", "CHIEF_MENTOR", "SUPER_ADMIN");
+  const id = s(fd, "id");
+  if (!id) return { ok: false, error: "Missing goal." };
+  const g = await prisma.goal.findUnique({ where: { id } });
+  if (!g) return { ok: false, error: "Goal not found." };
+  await prisma.goal.delete({ where: { id } });
+  touch("/student/goals", "/mentor", "/admin/students");
+  return { ok: true };
+}
+
 // ============================================================================
 // GROWTH / ACHIEVEMENTS / DOCUMENTS
 // ============================================================================
@@ -451,12 +725,47 @@ export async function addGrowthRecord(fd: FormData): Promise<Result> {
   return { ok: true };
 }
 
+export async function deleteGrowthRecord(fd: FormData): Promise<Result> {
+  await requireRole("MENTOR", "SUPERVISOR", "CHIEF_MENTOR", "SUPER_ADMIN");
+  const id = s(fd, "id");
+  if (!id) return { ok: false, error: "Missing growth record." };
+  const rec = await prisma.growthRecord.findUnique({ where: { id } });
+  if (!rec) return { ok: false, error: "Growth record not found." };
+  await prisma.growthRecord.delete({ where: { id } });
+  touch(`/admin/students/${rec.studentId}`, "/mentor");
+  return { ok: true };
+}
+
 export async function addAchievement(fd: FormData): Promise<Result> {
   const sess = await requireRole("MENTOR", "SUPERVISOR", "CHIEF_MENTOR", "SUPER_ADMIN");
   await prisma.achievement.create({
     data: { studentId: s(fd, "studentId"), title: s(fd, "title"), description: sn(fd, "description"), category: sn(fd, "category"), addedById: sess.userId },
   });
   touch("/student/achievements", `/admin/students/${s(fd, "studentId")}`);
+  return { ok: true };
+}
+
+export async function updateAchievement(fd: FormData): Promise<Result> {
+  await requireRole("MENTOR", "SUPERVISOR", "CHIEF_MENTOR", "SUPER_ADMIN");
+  const id = s(fd, "id");
+  if (!id) return { ok: false, error: "Missing achievement." };
+  const title = s(fd, "title");
+  if (!title) return { ok: false, error: "Title is required." };
+  await prisma.achievement.update({
+    where: { id }, data: { title, description: sn(fd, "description"), category: sn(fd, "category") },
+  });
+  touch("/student/achievements", "/admin/students");
+  return { ok: true };
+}
+
+export async function deleteAchievement(fd: FormData): Promise<Result> {
+  await requireRole("MENTOR", "SUPERVISOR", "CHIEF_MENTOR", "SUPER_ADMIN");
+  const id = s(fd, "id");
+  if (!id) return { ok: false, error: "Missing achievement." };
+  const a = await prisma.achievement.findUnique({ where: { id } });
+  if (!a) return { ok: false, error: "Achievement not found." };
+  await prisma.achievement.delete({ where: { id } });
+  touch("/student/achievements", "/admin/students");
   return { ok: true };
 }
 
@@ -490,9 +799,103 @@ export async function addDocument(fd: FormData): Promise<Result> {
   return { ok: true };
 }
 
+export async function updateDocument(fd: FormData): Promise<Result> {
+  await requireSession();
+  const id = s(fd, "id");
+  if (!id) return { ok: false, error: "Missing document." };
+  const title = s(fd, "title");
+  if (!title) return { ok: false, error: "Title is required." };
+  await prisma.studentDocument.update({
+    where: { id }, data: { title, type: (s(fd, "type") || "OTHER") as Prisma.StudentDocumentUpdateInput["type"] },
+  });
+  touch("/parent/documents", "/mentor", "/admin/students");
+  return { ok: true };
+}
+
+export async function deleteDocument(fd: FormData): Promise<Result> {
+  await requireSession();
+  const id = s(fd, "id");
+  if (!id) return { ok: false, error: "Missing document." };
+  const doc = await prisma.studentDocument.findUnique({ where: { id } });
+  if (!doc) return { ok: false, error: "Document not found." };
+  await prisma.studentDocument.delete({ where: { id } });
+  if (doc.fileUrl.startsWith("/uploads/")) {
+    await unlink(path.join(process.cwd(), "public", doc.fileUrl)).catch(() => {});
+  }
+  touch("/parent/documents", "/mentor", "/admin/students");
+  return { ok: true };
+}
+
 // ============================================================================
 // ASSESSMENTS
 // ============================================================================
+export async function saveAssessmentTemplate(fd: FormData): Promise<Result> {
+  const sess = await requireRole("SUPER_ADMIN", "CHIEF_MENTOR");
+  const id = sn(fd, "id");
+  const title = s(fd, "title");
+  if (!title) return { ok: false, error: "Title is required." };
+
+  let questions: unknown;
+  try {
+    questions = JSON.parse(s(fd, "questions") || "[]");
+    if (!Array.isArray(questions)) throw new Error();
+  } catch {
+    return { ok: false, error: "Questions must be valid JSON array — e.g. [{\"id\":\"q1\",\"text\":\"...\",\"options\":[...]}]." };
+  }
+  let scoring: unknown = null;
+  const scoringRaw = s(fd, "scoring");
+  if (scoringRaw) {
+    try {
+      scoring = JSON.parse(scoringRaw);
+    } catch {
+      return { ok: false, error: "Scoring must be valid JSON." };
+    }
+  }
+
+  const data = {
+    title, description: sn(fd, "description"),
+    level: s(fd, "level") as Prisma.AssessmentTemplateCreateInput["level"],
+    category: s(fd, "category") as Prisma.AssessmentTemplateCreateInput["category"],
+    ageMin: num(fd, "ageMin"), ageMax: num(fd, "ageMax"), durationMins: num(fd, "durationMins"),
+    questions: questions as Prisma.InputJsonValue,
+    scoring: scoring as Prisma.InputJsonValue,
+  };
+  const res = id
+    ? await prisma.assessmentTemplate.update({ where: { id }, data })
+    : await prisma.assessmentTemplate.create({ data: { ...data, createdById: sess.userId } });
+  await log(id ? "UPDATE" : "CREATE", "AssessmentTemplate", res.id);
+  touch("/admin/assessments");
+  return { ok: true, id: res.id };
+}
+
+export async function setTemplateActive(fd: FormData): Promise<Result> {
+  await requireRole("SUPER_ADMIN", "CHIEF_MENTOR");
+  const id = s(fd, "id");
+  await prisma.assessmentTemplate.update({ where: { id }, data: { isActive: s(fd, "isActive") === "true" } });
+  touch("/admin/assessments");
+  return { ok: true };
+}
+
+export async function deleteAssessmentTemplate(fd: FormData): Promise<Result> {
+  await requireRole("SUPER_ADMIN");
+  const id = s(fd, "id");
+  if (!id) return { ok: false, error: "Missing template." };
+  const template = await prisma.assessmentTemplate.findUnique({
+    where: { id }, select: { title: true, _count: { select: { instances: true } } },
+  });
+  if (!template) return { ok: false, error: "Template not found." };
+  if (template._count.instances > 0) {
+    return {
+      ok: false,
+      error: `Cannot delete — ${template._count.instances} student assessment(s) use this template. Mark it inactive instead to retire it without losing results.`,
+    };
+  }
+  await prisma.assessmentTemplate.delete({ where: { id } });
+  await log("DELETE", "AssessmentTemplate", id, { title: template.title });
+  touch("/admin/assessments");
+  return { ok: true };
+}
+
 export async function assignAssessment(fd: FormData): Promise<Result> {
   const sess = await requireRole("MENTOR", "SUPERVISOR", "CHIEF_MENTOR", "SUPER_ADMIN");
   const a = await prisma.studentAssessment.create({
@@ -697,6 +1100,18 @@ export async function rejectMentorApplication(fd: FormData): Promise<Result> {
     where: { id }, data: { status: "REJECTED", interviewNote: sn(fd, "interviewNote"), reviewedById: sess.userId },
   });
   await log("REJECT", "MentorApplication", id);
+  touch("/admin/mentor-applications");
+  return { ok: true };
+}
+
+export async function deleteMentorApplication(fd: FormData): Promise<Result> {
+  await requireRole("SUPER_ADMIN", "CHIEF_MENTOR");
+  const id = s(fd, "id");
+  if (!id) return { ok: false, error: "Missing application." };
+  const app = await prisma.mentorApplication.findUnique({ where: { id }, select: { name: true } });
+  if (!app) return { ok: false, error: "Application not found." };
+  await prisma.mentorApplication.delete({ where: { id } });
+  await log("DELETE", "MentorApplication", id, { name: app.name });
   touch("/admin/mentor-applications");
   return { ok: true };
 }

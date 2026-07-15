@@ -206,11 +206,11 @@ model User {
   yearsExperience  Int?
   availableForPool Boolean        @default(false)
 
-  institution   Institution? @relation(fields: [institutionId], references: [id])
+  institution   Institution? @relation(fields: [institutionId], references: [id], onDelete: SetNull)
   institutionId String?
 
   // reporting chain: mentor -> supervisor -> chief mentor
-  manager   User?   @relation("Reports", fields: [managerId], references: [id])
+  manager   User?   @relation("Reports", fields: [managerId], references: [id], onDelete: SetNull)
   managerId String?
   reports   User[]  @relation("Reports")
 
@@ -295,16 +295,16 @@ model Student {
   // --- Mentoring preference (matching) ---
   preferredMode MentoringMode?
 
-  institution   Institution? @relation(fields: [institutionId], references: [id])
+  institution   Institution? @relation(fields: [institutionId], references: [id], onDelete: SetNull)
   institutionId String?
 
-  parent     User?   @relation("StudentParent", fields: [parentId], references: [id])
+  parent     User?   @relation("StudentParent", fields: [parentId], references: [id], onDelete: SetNull)
   parentId   String?
 
-  mentor     User?   @relation("StudentMentor", fields: [mentorId], references: [id])
+  mentor     User?   @relation("StudentMentor", fields: [mentorId], references: [id], onDelete: SetNull)
   mentorId   String?
 
-  loginUser  User?   @relation("StudentLogin", fields: [userId], references: [id])
+  loginUser  User?   @relation("StudentLogin", fields: [userId], references: [id], onDelete: SetNull)
   userId     String? @unique
 
   createdAt DateTime @default(now())
@@ -385,7 +385,7 @@ model MonthlyUpdate {
   id          String   @id @default(cuid())
   student     Student  @relation(fields: [studentId], references: [id], onDelete: Cascade)
   studentId   String
-  mentor      User?    @relation("MentorMonthlyUpdates", fields: [mentorId], references: [id])
+  mentor      User?    @relation("MentorMonthlyUpdates", fields: [mentorId], references: [id], onDelete: SetNull)
   mentorId    String?
   month       String // e.g. "July 2026"
   summary     String   @db.Text
@@ -409,7 +409,7 @@ model ParentApplication {
   message         String?           @db.Text
   status          ApplicationStatus @default(PENDING)
   reviewNote      String?           @db.Text
-  reviewedBy      User?             @relation("AppReviewer", fields: [reviewedById], references: [id])
+  reviewedBy      User?             @relation("AppReviewer", fields: [reviewedById], references: [id], onDelete: SetNull)
   reviewedById    String?
   createdStudentId String?
   createdAt       DateTime          @default(now())
@@ -427,7 +427,7 @@ model StudentDocument {
   fileName     String?
   fileUrl      String       @db.Text
   mimeType     String?
-  uploadedBy   User?        @relation("DocUploader", fields: [uploadedById], references: [id])
+  uploadedBy   User?        @relation("DocUploader", fields: [uploadedById], references: [id], onDelete: SetNull)
   uploadedById String?
   createdAt    DateTime     @default(now())
 
@@ -443,7 +443,7 @@ model GrowthRecord {
   note         String?        @db.Text
   score        Int? // 0-100
   date         DateTime       @default(now())
-  recordedBy   User?          @relation("GrowthRecorder", fields: [recordedById], references: [id])
+  recordedBy   User?          @relation("GrowthRecorder", fields: [recordedById], references: [id], onDelete: SetNull)
   recordedById String?
   createdAt    DateTime       @default(now())
 
@@ -461,7 +461,7 @@ model Goal {
   targetDate  DateTime?
   progress    Int        @default(0) // 0-100
   status      GoalStatus @default(NOT_STARTED)
-  createdBy   User?      @relation("GoalCreator", fields: [createdById], references: [id])
+  createdBy   User?      @relation("GoalCreator", fields: [createdById], references: [id], onDelete: SetNull)
   createdById String?
   createdAt   DateTime   @default(now())
   updatedAt   DateTime   @updatedAt
@@ -473,16 +473,16 @@ model Task {
   id          String     @id @default(cuid())
   title       String
   description String?    @db.Text
-  student     Student?   @relation(fields: [studentId], references: [id])
+  student     Student?   @relation(fields: [studentId], references: [id], onDelete: Cascade)
   studentId   String?
-  assignedTo  User?      @relation("TaskAssignee", fields: [assignedToId], references: [id])
+  assignedTo  User?      @relation("TaskAssignee", fields: [assignedToId], references: [id], onDelete: SetNull)
   assignedToId String?
   dueDate     DateTime?
   status      TaskStatus @default(PENDING)
   priority    String?    @default("normal")
-  session     MentoringSession? @relation(fields: [sessionId], references: [id])
+  session     MentoringSession? @relation(fields: [sessionId], references: [id], onDelete: SetNull)
   sessionId   String?
-  createdBy   User?      @relation("TaskCreator", fields: [createdById], references: [id])
+  createdBy   User?      @relation("TaskCreator", fields: [createdById], references: [id], onDelete: SetNull)
   createdById String?
   createdAt   DateTime   @default(now())
   updatedAt   DateTime   @updatedAt
@@ -508,7 +508,7 @@ model AssessmentTemplate {
   questions    Json // [{ id, text, type, options:[{label,value,score,trait}] }]
   scoring      Json? // interpretation bands / trait map
   isActive     Boolean            @default(true)
-  createdBy    User?              @relation("TemplateCreator", fields: [createdById], references: [id])
+  createdBy    User?              @relation("TemplateCreator", fields: [createdById], references: [id], onDelete: SetNull)
   createdById  String?
   createdAt    DateTime           @default(now())
   updatedAt    DateTime           @updatedAt
@@ -532,7 +532,7 @@ model StudentAssessment {
   resultSummary   String?          @db.Text
   interpretation  Json? // per-trait/intelligence scores
   recommendations String?          @db.Text
-  assignedBy      User?            @relation("AssessmentAssigner", fields: [assignedById], references: [id])
+  assignedBy      User?            @relation("AssessmentAssigner", fields: [assignedById], references: [id], onDelete: SetNull)
   assignedById    String?
   completedAt     DateTime?
   createdAt       DateTime         @default(now())
@@ -563,7 +563,7 @@ model MentoringSession {
   observations String?       @db.Text
   actionPoints String?       @db.Text
   parentNote   String?       @db.Text
-  createdBy    User?         @relation("SessionCreator", fields: [createdById], references: [id])
+  createdBy    User?         @relation("SessionCreator", fields: [createdById], references: [id], onDelete: SetNull)
   createdById  String?
   createdAt    DateTime      @default(now())
   updatedAt    DateTime      @updatedAt
@@ -612,12 +612,12 @@ model Message {
 
 model Announcement {
   id            String       @id @default(cuid())
-  author        User?        @relation("AnnouncementAuthor", fields: [authorId], references: [id])
+  author        User?        @relation("AnnouncementAuthor", fields: [authorId], references: [id], onDelete: SetNull)
   authorId      String?
   title         String
   body          String       @db.Text
   audience      Audience     @default(ALL)
-  institution   Institution? @relation(fields: [institutionId], references: [id])
+  institution   Institution? @relation(fields: [institutionId], references: [id], onDelete: SetNull)
   institutionId String?
   pinned        Boolean      @default(false)
   createdAt     DateTime     @default(now())
@@ -627,11 +627,11 @@ model Announcement {
 
 model Feedback {
   id        String         @id @default(cuid())
-  fromUser  User?          @relation("FeedbackFrom", fields: [fromUserId], references: [id])
+  fromUser  User?          @relation("FeedbackFrom", fields: [fromUserId], references: [id], onDelete: SetNull)
   fromUserId String?
-  student   Student?       @relation(fields: [studentId], references: [id])
+  student   Student?       @relation(fields: [studentId], references: [id], onDelete: SetNull)
   studentId String?
-  mentor    User?          @relation("FeedbackMentor", fields: [mentorId], references: [id])
+  mentor    User?          @relation("FeedbackMentor", fields: [mentorId], references: [id], onDelete: SetNull)
   mentorId  String?
   rating    Int? // 1-5
   comment   String         @db.Text
@@ -657,9 +657,9 @@ model ProgressReport {
   content         Json?
   fileUrl         String?      @db.Text
   status          ReportStatus @default(DRAFT)
-  submittedBy     User?        @relation("ReportSubmitter", fields: [submittedById], references: [id])
+  submittedBy     User?        @relation("ReportSubmitter", fields: [submittedById], references: [id], onDelete: SetNull)
   submittedById   String?
-  reviewedBy      User?        @relation("ReportReviewer", fields: [reviewedById], references: [id])
+  reviewedBy      User?        @relation("ReportReviewer", fields: [reviewedById], references: [id], onDelete: SetNull)
   reviewedById    String?
   sharedWithParent Boolean     @default(false)
   createdAt       DateTime     @default(now())
@@ -677,7 +677,7 @@ model Achievement {
   description String?  @db.Text
   category    String?
   date        DateTime @default(now())
-  addedBy     User?    @relation("AchievementAdder", fields: [addedById], references: [id])
+  addedBy     User?    @relation("AchievementAdder", fields: [addedById], references: [id], onDelete: SetNull)
   addedById   String?
 
   @@index([studentId])
@@ -699,7 +699,7 @@ model Notification {
 
 model AuditLog {
   id        String   @id @default(cuid())
-  user      User?    @relation(fields: [userId], references: [id])
+  user      User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
   userId    String?
   action    String
   entity    String?

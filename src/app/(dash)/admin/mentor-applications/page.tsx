@@ -1,14 +1,18 @@
 import type { MentorAppStatus } from "@prisma/client";
 import { CalendarClock, X } from "lucide-react";
 import { prisma } from "@/lib/db";
-import { moveMentorToInterview, approveMentorApplication, rejectMentorApplication } from "@/lib/actions";
+import { moveMentorToInterview, approveMentorApplication, rejectMentorApplication, deleteMentorApplication } from "@/lib/actions";
 import { PageHeader, Badge } from "@/components/ui/primitives";
 import { Panel } from "@/components/dash/widgets";
 import { TabLinks } from "@/components/ui/Tabs";
 import { Modal } from "@/components/ui/Modal";
 import { ActionForm } from "@/components/ui/ActionForm";
+import { ConfirmDeleteButton } from "@/components/ui/ConfirmDeleteButton";
 import { SubmitButton, Field } from "@/components/ui/form";
+import { Pagination } from "@/components/ui/Pagination";
 import { fmtDate, titleCase } from "@/lib/utils";
+
+const PAGE_SIZE = 10;
 
 const TABS = [
   { key: "APPLIED", label: "Applied" },
@@ -29,15 +33,18 @@ const STATUSES: MentorAppStatus[] = ["APPLIED", "INTERVIEW", "APPROVED", "REJECT
 export default async function MentorApplicationsPage({
   searchParams,
 }: {
-  searchParams: Promise<{ tab?: string }>;
+  searchParams: Promise<{ tab?: string; page?: string }>;
 }) {
-  const { tab } = await searchParams;
+  const { tab, page: pageParam } = await searchParams;
   const status = (STATUSES.includes(tab as MentorAppStatus) ? tab : "APPLIED") as MentorAppStatus;
+  const page = Math.max(1, Number(pageParam) || 1);
 
-  const apps = await prisma.mentorApplication.findMany({
-    where: { status },
-    orderBy: { createdAt: "desc" },
-  });
+  const [apps, total] = await Promise.all([
+    prisma.mentorApplication.findMany({
+      where: { status }, orderBy: { createdAt: "desc" }, skip: (page - 1) * PAGE_SIZE, take: PAGE_SIZE,
+    }),
+    prisma.mentorApplication.count({ where: { status } }),
+  ]);
 
   return (
     <>
@@ -101,18 +108,29 @@ export default async function MentorApplicationsPage({
                   <p className="mt-2 text-xs text-slate-400">Applied {fmtDate(a.createdAt)}</p>
                 </div>
 
-                {a.status !== "APPROVED" && a.status !== "REJECTED" && (
-                  <div className="flex shrink-0 flex-wrap gap-2">
-                    {a.status === "APPLIED" && <InterviewModal id={a.id} />}
-                    <ApproveForm id={a.id} />
-                    <RejectModal id={a.id} />
-                  </div>
-                )}
+                <div className="flex shrink-0 flex-wrap gap-2">
+                  {a.status !== "APPROVED" && a.status !== "REJECTED" && (
+                    <>
+                      {a.status === "APPLIED" && <InterviewModal id={a.id} />}
+                      <ApproveForm id={a.id} />
+                      <RejectModal id={a.id} />
+                    </>
+                  )}
+                  <ConfirmDeleteButton
+                    action={deleteMentorApplication}
+                    hiddenFields={{ id: a.id }}
+                    itemLabel={`${a.name}'s application`}
+                    triggerClassName="btn-ghost text-xs text-red-600"
+                  />
+                </div>
               </div>
             </Panel>
           ))
         )}
       </div>
+      <Panel>
+        <Pagination page={page} pageSize={PAGE_SIZE} total={total} basePath="/admin/mentor-applications" searchParams={{ tab }} />
+      </Panel>
     </>
   );
 }

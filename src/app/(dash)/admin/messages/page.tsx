@@ -1,12 +1,13 @@
 import { redirect } from "next/navigation";
-import { Send, Inbox, MailOpen } from "lucide-react";
+import { Send, Inbox, MailOpen, Trash2 } from "lucide-react";
 import { prisma } from "@/lib/db";
 import { getSession } from "@/lib/auth";
-import { sendMessage } from "@/lib/actions";
+import { sendMessage, deleteMessage } from "@/lib/actions";
 import { PageHeader, Avatar, Badge, EmptyState } from "@/components/ui/primitives";
 import { Panel } from "@/components/dash/widgets";
 import { Modal } from "@/components/ui/Modal";
 import { ActionForm } from "@/components/ui/ActionForm";
+import { ConfirmDeleteButton } from "@/components/ui/ConfirmDeleteButton";
 import { SubmitButton, Field } from "@/components/ui/form";
 import { timeAgo, titleCase } from "@/lib/utils";
 
@@ -59,6 +60,7 @@ export default async function MessagesPage() {
               {inbox.map((m) => (
                 <MessageRow
                   key={m.id}
+                  id={m.id}
                   name={m.sender.name}
                   role={m.sender.role}
                   avatar={m.sender.avatar}
@@ -86,6 +88,7 @@ export default async function MessagesPage() {
               {sent.map((m) => (
                 <MessageRow
                   key={m.id}
+                  id={m.id}
                   name={`To: ${m.recipient.name}`}
                   role={m.recipient.role}
                   avatar={m.recipient.avatar}
@@ -103,6 +106,7 @@ export default async function MessagesPage() {
 }
 
 function MessageRow({
+  id,
   name,
   role,
   avatar,
@@ -111,6 +115,7 @@ function MessageRow({
   time,
   unread,
 }: {
+  id: string;
   name: string;
   role: string;
   avatar?: string | null;
@@ -120,7 +125,7 @@ function MessageRow({
   unread?: boolean;
 }) {
   return (
-    <div className="flex gap-3 py-3">
+    <div className="group flex gap-3 py-3">
       <Avatar name={name.replace(/^To: /, "")} src={avatar} size={36} />
       <div className="min-w-0 flex-1">
         <div className="flex items-center justify-between gap-2">
@@ -128,7 +133,18 @@ function MessageRow({
             {unread && <span className="mr-1.5 inline-block h-2 w-2 rounded-full bg-leaf align-middle" />}
             {name}
           </p>
-          <span className="shrink-0 text-xs text-slate-400">{time}</span>
+          <div className="flex shrink-0 items-center gap-2">
+            <span className="text-xs text-slate-400">{time}</span>
+            <span className="opacity-0 transition group-hover:opacity-100">
+              <ConfirmDeleteButton
+                action={deleteMessage}
+                hiddenFields={{ id }}
+                itemLabel="this message"
+                triggerClassName="btn-ghost px-1.5 py-1 text-red-500"
+                triggerLabel={<Trash2 className="h-3.5 w-3.5" />}
+              />
+            </span>
+          </div>
         </div>
         <p className="text-xs text-slate-400">{titleCase(role)}</p>
         {subject && <p className="mt-1 text-sm font-medium text-slate-600">{subject}</p>}
