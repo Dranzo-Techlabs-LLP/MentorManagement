@@ -1,5 +1,5 @@
 import { redirect } from "next/navigation";
-import { Plus, Shield, Lock, Users } from "lucide-react";
+import { Plus, Pencil, Shield, Lock, Users } from "lucide-react";
 import type { Role } from "@prisma/client";
 import { prisma } from "@/lib/db";
 import { getSession } from "@/lib/auth";
@@ -63,6 +63,7 @@ export default async function RolesPage() {
                 </span>
                 {!role.isSystem && (
                   <span className="flex items-center gap-1">
+                    <EditRoleModal role={role} />
                     <ConfirmDeleteButton
                       action={deleteAppRole}
                       hiddenFields={{ id: role.id }}
@@ -134,6 +135,33 @@ export default async function RolesPage() {
         })}
       </div>
     </>
+  );
+}
+
+function EditRoleModal({ role }: { role: { id: string; name: string; baseRole: Role } }) {
+  return (
+    <Modal
+      title="Edit Role"
+      triggerClassName="btn-ghost text-xs"
+      triggerLabel={<><Pencil className="h-3.5 w-3.5" /> Edit</>}
+    >
+      <ActionForm action={saveAppRole} className="space-y-4" successMessage="Role updated.">
+        <input type="hidden" name="id" value={role.id} />
+        <Field label="Role name">
+          <input name="name" className="input" required defaultValue={role.name} />
+        </Field>
+        <Field label="Workspace (base role)" hint="Which dashboard & pages this role's users see.">
+          <select name="baseRole" className="input" defaultValue={role.baseRole}>
+            {BASE_ROLES.map((r) => (
+              <option key={r} value={r}>{titleCase(r)}</option>
+            ))}
+          </select>
+        </Field>
+        <div className="flex justify-end">
+          <SubmitButton>Save changes</SubmitButton>
+        </div>
+      </ActionForm>
+    </Modal>
   );
 }
 

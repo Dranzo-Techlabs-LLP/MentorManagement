@@ -18,6 +18,13 @@ build
 # deploy artifacts
 *.zip
 *.tar.gz
+
+# playwright
+/test-results
+/playwright-report
+/blob-report
+/playwright/.cache
+/e2e/.auth
 next-env.d.ts
 tsconfig.tsbuildinfo
 /coverage

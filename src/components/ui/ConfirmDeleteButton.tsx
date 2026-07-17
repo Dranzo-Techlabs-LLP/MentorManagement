@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useId } from "react";
 import { Trash2, AlertTriangle } from "lucide-react";
 import { ActionForm } from "./ActionForm";
 import { SubmitButton } from "./form";
@@ -30,6 +30,7 @@ export function ConfirmDeleteButton({
   onDone?: () => void;
 }) {
   const [open, setOpen] = useState(false);
+  const titleId = useId();
 
   return (
     <>
@@ -46,6 +47,9 @@ export function ConfirmDeleteButton({
           onClick={() => setOpen(false)}
         >
           <div
+            role="alertdialog"
+            aria-modal="true"
+            aria-labelledby={titleId}
             className="w-full max-w-sm rounded-2xl bg-white p-5 shadow-cardhover"
             onClick={(e) => e.stopPropagation()}
           >
@@ -54,7 +58,7 @@ export function ConfirmDeleteButton({
                 <AlertTriangle className="h-5 w-5" />
               </span>
               <div>
-                <h3 className="font-bold text-navy">Delete {itemLabel}?</h3>
+                <h3 id={titleId} className="font-bold text-navy">Delete {itemLabel}?</h3>
                 <p className="mt-1 text-sm text-slate-500">
                   {warning ?? "This action is permanent and cannot be undone."}
                 </p>

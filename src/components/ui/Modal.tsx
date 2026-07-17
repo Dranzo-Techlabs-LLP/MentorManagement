@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, createContext, useContext } from "react";
+import { useState, useEffect, createContext, useContext, useId } from "react";
 import { X } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -25,11 +25,22 @@ export function Modal({
   wide?: boolean;
 }) {
   const [open, setOpen] = useState(false);
+  const titleId = useId();
   useEffect(() => {
     document.body.style.overflow = open ? "hidden" : "";
     return () => {
       document.body.style.overflow = "";
     };
+  }, [open]);
+
+  // Close on Escape — expected dialog behaviour for keyboard users.
+  useEffect(() => {
+    if (!open) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setOpen(false);
+    };
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
   }, [open]);
 
   return (
@@ -43,12 +54,20 @@ export function Modal({
           onClick={() => setOpen(false)}
         >
           <div
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby={titleId}
             className={cn("w-full rounded-2xl bg-white shadow-cardhover", wide ? "max-w-2xl" : "max-w-lg")}
             onClick={(e) => e.stopPropagation()}
           >
             <div className="flex items-center justify-between border-b border-slate-100 px-5 py-3.5">
-              <h3 className="font-bold text-navy">{title}</h3>
-              <button onClick={() => setOpen(false)} className="rounded-lg p-1 text-slate-400 hover:bg-slate-100">
+              <h3 id={titleId} className="font-bold text-navy">{title}</h3>
+              <button
+                type="button"
+                aria-label="Close dialog"
+                onClick={() => setOpen(false)}
+                className="rounded-lg p-1 text-slate-400 hover:bg-slate-100"
+              >
                 <X className="h-5 w-5" />
               </button>
             </div>
