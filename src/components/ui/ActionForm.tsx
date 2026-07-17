@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { useModalClose } from "./Modal";
+import { useToast } from "./Toast";
 
 type Result = { ok: boolean; error?: string; id?: string };
 
@@ -18,23 +19,24 @@ export function ActionForm({
   onDone?: () => void;
   className?: string;
   resetOnSuccess?: boolean;
+  /** Shown as a toast on success. Toasts live at the root, so the message
+   *  survives this form unmounting when it sits inside a Modal. */
   successMessage?: string;
 }) {
   const [error, setError] = useState("");
-  const [done, setDone] = useState(false);
   const closeModal = useModalClose();
+  const toast = useToast();
 
   return (
     <form
       className={className}
       action={async (fd) => {
         setError("");
-        setDone(false);
         const res = await action(fd);
         if (res?.ok) {
           onDone?.();
+          if (successMessage) toast(successMessage);
           closeModal(); // no-op when not inside a Modal
-          if (successMessage) setDone(true);
           if (resetOnSuccess) {
             const form = document.activeElement?.closest("form");
             (form as HTMLFormElement | null)?.reset();
@@ -46,9 +48,6 @@ export function ActionForm({
     >
       {error && (
         <div className="mb-3 rounded-lg bg-red-50 px-3 py-2 text-sm font-medium text-red-600">{error}</div>
-      )}
-      {done && successMessage && (
-        <div className="mb-3 rounded-lg bg-leaf-50 px-3 py-2 text-sm font-medium text-leaf-700">{successMessage}</div>
       )}
       {children}
     </form>

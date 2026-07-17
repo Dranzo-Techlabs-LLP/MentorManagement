@@ -20,6 +20,15 @@ function roleRow(page: Page, name: string) {
   return page.locator("details", { has: page.getByText(name, { exact: true }) }).first();
 }
 
+/**
+ * Success toast (role="status", lives at the root so it outlives the modal).
+ * Matched by its distinct text, so a still-visible earlier toast can't satisfy
+ * a later assertion. `.first()` keeps it strict-mode safe if two toasts stack.
+ */
+function toast(page: Page, text: string | RegExp) {
+  return page.getByRole("status").filter({ hasText: text }).first();
+}
+
 async function openRoleRow(page: Page, name: string) {
   const row = roleRow(page, name);
   await expect(row).toBeVisible();
@@ -40,6 +49,7 @@ async function createRole(page: Page, name: string, baseRole = "Supervisor") {
   await expect(dialog).toBeHidden();
   await expect(roleRow(page, name)).toBeVisible();
 }
+
 
 async function deleteRoleIfExists(page: Page, name: string) {
   await page.goto("/admin/roles");
@@ -103,10 +113,13 @@ test("page loads with the roles list and permission matrix columns", async ({ pa
 // ---------------------------------------------------------------------------
 // 2. Create role
 // ---------------------------------------------------------------------------
-test("creates a new role and it appears in the list", async ({ page }) => {
+test("creates a new role, shows a success toast, and it appears in the list", async ({ page }) => {
   const name = uniqueRoleName();
   try {
     await createRole(page, name, "Supervisor");
+
+    // Success toast survives the modal closing.
+    await expect(toast(page, /Role created/i)).toBeVisible();
 
     const row = roleRow(page, name);
     await expect(row.getByText("Custom", { exact: true })).toBeVisible();
@@ -181,6 +194,7 @@ test("edits a role: rename and permission changes persist after reload", async (
     await dialog.getByLabel("Role name").fill(renamed);
     await dialog.getByRole("button", { name: /save changes/i }).click();
     await expect(dialog).toBeHidden();
+    await expect(toast(page, /Role updated/i)).toBeVisible();
 
     await expect(roleRow(page, renamed)).toBeVisible();
     await expect(page.locator("details", { has: page.getByText(name, { exact: true }) })).toHaveCount(0);
@@ -191,7 +205,7 @@ test("edits a role: rename and permission changes persist after reload", async (
     const before = await institutionsDelete.isChecked();
     await institutionsDelete.setChecked(!before);
     await row.getByRole("button", { name: /save permissions/i }).click();
-    await expect(row.getByText("Permissions saved.")).toBeVisible();
+    await expect(toast(page, "Permissions saved.")).toBeVisible();
 
     // --- persists across reload ---
     await page.reload();
@@ -226,7 +240,7 @@ test("assigning and unassigning responsibilities reflects and persists", async (
     await expect(revoke).not.toBeChecked();
 
     await row.getByRole("button", { name: /save permissions/i }).click();
-    await expect(row.getByText("Permissions saved.")).toBeVisible();
+    await expect(toast(page, "Permissions saved.")).toBeVisible();
 
     await page.reload();
     const reloaded = await openRoleRow(page, name);
@@ -259,6 +273,7 @@ test("deletes a role via the confirmation dialog", async ({ page }) => {
   await roleRow(page, name).getByRole("button", { name: /^delete$/i }).click();
   await page.getByRole("alertdialog").getByRole("button", { name: /^delete$/i }).click();
   await expect(page.getByRole("alertdialog")).toBeHidden();
+  await expect(toast(page, /Role deleted/i)).toBeVisible();
   await expect(roleRow(page, name)).toHaveCount(0);
 
   await page.reload();

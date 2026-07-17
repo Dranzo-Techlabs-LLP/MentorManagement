@@ -20,6 +20,7 @@ export function ConfirmDeleteButton({
   triggerLabel,
   triggerClassName = "btn-ghost text-red-600",
   onDone,
+  successMessage,
 }: {
   action: (fd: FormData) => Promise<Result>;
   hiddenFields: Record<string, string>;
@@ -28,6 +29,8 @@ export function ConfirmDeleteButton({
   triggerLabel?: React.ReactNode;
   triggerClassName?: string;
   onDone?: () => void;
+  /** Toast shown once the delete succeeds. */
+  successMessage?: string;
 }) {
   const [open, setOpen] = useState(false);
   const titleId = useId();
@@ -67,6 +70,7 @@ export function ConfirmDeleteButton({
             <ActionForm
               action={action}
               className="mt-4"
+              successMessage={successMessage}
               onDone={() => {
                 setOpen(false);
                 onDone?.();

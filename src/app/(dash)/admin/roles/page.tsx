@@ -68,6 +68,7 @@ export default async function RolesPage() {
                       action={deleteAppRole}
                       hiddenFields={{ id: role.id }}
                       itemLabel={`the "${role.name}" role`}
+                      successMessage="Role deleted."
                       warning={
                         role._count.users > 0
                           ? `${role._count.users} user(s) currently hold this role — they will fall back to their workspace's default permissions.`
