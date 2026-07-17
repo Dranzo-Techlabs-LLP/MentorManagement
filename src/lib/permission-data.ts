@@ -40,11 +40,14 @@ const ALL = p(true, true, true, true);
  * has no explicit rows for a resource.
  */
 export const DEFAULT_MATRIX: Record<Role, Record<ResourceKey, PermSet>> = {
+  // Super Admin is all-true on every resource by definition (see getPermsForUser,
+  // which force-returns ALL for this role). Kept explicit so the seeded rows match
+  // what the engine enforces.
   SUPER_ADMIN: {
     students: ALL, portfolio: ALL, mentors: ALL, parents: ALL, users: ALL,
     institutions: ALL, applications: ALL, mentor_applications: ALL, sessions: ALL,
     assessments: ALL, reports: ALL, announcements: ALL, messages: ALL,
-    feedback: ALL, logs: p(false, true, false, false), settings: ALL,
+    feedback: ALL, logs: ALL, settings: ALL,
   },
   CHIEF_MENTOR: {
     students: p(true, true, true, false), portfolio: ALL, mentors: VIEW, parents: VIEW,
