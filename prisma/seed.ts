@@ -1,5 +1,6 @@
 import { PrismaClient, Role } from "@prisma/client";
 import bcrypt from "bcryptjs";
+import { RESOURCES, DEFAULT_MATRIX, SYSTEM_ROLE_NAMES } from "../src/lib/permission-data";
 
 const prisma = new PrismaClient();
 const PASS = "Elevate@123";
@@ -16,6 +17,8 @@ async function main() {
   const hash = await bcrypt.hash(PASS, 10);
 
   // wipe (order matters for FKs)
+  await prisma.rolePermission.deleteMany();
+  await prisma.appRole.deleteMany();
   await prisma.auditLog.deleteMany();
   await prisma.notification.deleteMany();
   await prisma.achievement.deleteMany();
@@ -306,6 +309,25 @@ async function main() {
       { userId: sup1.id, title: "Reports to review", message: "1 report submitted by Ansil Ahamed needs your review.", type: "warning", link: "/supervisor/reports" },
     ],
   });
+
+  // RBAC — seed the six system permission roles with their default matrices.
+  for (const [role, name] of Object.entries(SYSTEM_ROLE_NAMES) as [Role, string][]) {
+    await prisma.appRole.create({
+      data: {
+        name, baseRole: role, isSystem: true,
+        permissions: {
+          create: RESOURCES.map((r) => ({
+            resource: r.key,
+            canCreate: DEFAULT_MATRIX[role][r.key].create,
+            canView: DEFAULT_MATRIX[role][r.key].view,
+            canEdit: DEFAULT_MATRIX[role][r.key].edit,
+            canDelete: DEFAULT_MATRIX[role][r.key].delete,
+          })),
+        },
+      },
+    });
+  }
+  console.log("RBAC: seeded 6 system permission roles.");
 
   console.log(`Seed complete: ${students.length} students, ${mentors.length} mentors.`);
   console.log(`Login with any demo account · password: ${PASS}`);

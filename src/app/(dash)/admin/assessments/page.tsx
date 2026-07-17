@@ -1,6 +1,7 @@
 import { FileBarChart, ClipboardList, CheckCircle2, Plus, Pencil, Power } from "lucide-react";
 import type { AssessmentTemplate, AssessmentLevel, AssessmentCategory } from "@prisma/client";
 import { prisma } from "@/lib/db";
+import { getPerms } from "@/lib/permissions";
 import { saveAssessmentTemplate, setTemplateActive, deleteAssessmentTemplate } from "@/lib/actions";
 import { PageHeader, StatCard, Badge, Avatar } from "@/components/ui/primitives";
 import { Panel } from "@/components/dash/widgets";
@@ -19,6 +20,7 @@ const CATEGORIES: AssessmentCategory[] = [
 ];
 
 export default async function AssessmentsPage() {
+  const perms = await getPerms("assessments");
   const [templates, statusCounts, recentCompleted, totalAssigned] = await Promise.all([
     prisma.assessmentTemplate.findMany({
       orderBy: { createdAt: "desc" },
@@ -70,7 +72,7 @@ export default async function AssessmentsPage() {
       </div>
 
       <div className="mt-4">
-        <Panel title="Assessment Templates" action={<TemplateModal />}>
+        <Panel title="Assessment Templates" action={perms.create ? <TemplateModal /> : undefined}>
           <DataTable
             rows={templates}
             getKey={(t) => t.id}
@@ -117,25 +119,32 @@ export default async function AssessmentsPage() {
                 header: "Actions",
                 cell: (t) => (
                   <div className="flex items-center gap-1">
-                    <TemplateModal template={t} />
-                    <ActionForm action={setTemplateActive} className="inline-flex">
-                      <input type="hidden" name="id" value={t.id} />
-                      <input type="hidden" name="isActive" value={t.isActive ? "false" : "true"} />
-                      <SubmitButton className={t.isActive ? "btn-ghost text-xs text-red-600" : "btn-ghost text-xs text-leaf-700"} pendingText="…">
-                        <Power className="h-3.5 w-3.5" /> {t.isActive ? "Deactivate" : "Activate"}
-                      </SubmitButton>
-                    </ActionForm>
-                    <ConfirmDeleteButton
-                      action={deleteAssessmentTemplate}
-                      hiddenFields={{ id: t.id }}
-                      itemLabel={t.title}
-                      warning={
-                        t._count.instances > 0
-                          ? `${t._count.instances} student assessment(s) use this template and must be cleared first — deletion will be blocked until then.`
-                          : "This is permanent and cannot be undone."
-                      }
-                      triggerClassName="btn-ghost text-xs text-red-600"
-                    />
+                    {perms.edit && (
+                      <>
+                        <TemplateModal template={t} />
+                        <ActionForm action={setTemplateActive} className="inline-flex">
+                          <input type="hidden" name="id" value={t.id} />
+                          <input type="hidden" name="isActive" value={t.isActive ? "false" : "true"} />
+                          <SubmitButton className={t.isActive ? "btn-ghost text-xs text-red-600" : "btn-ghost text-xs text-leaf-700"} pendingText="…">
+                            <Power className="h-3.5 w-3.5" /> {t.isActive ? "Deactivate" : "Activate"}
+                          </SubmitButton>
+                        </ActionForm>
+                      </>
+                    )}
+                    {perms.delete && (
+                      <ConfirmDeleteButton
+                        action={deleteAssessmentTemplate}
+                        hiddenFields={{ id: t.id }}
+                        itemLabel={t.title}
+                        warning={
+                          t._count.instances > 0
+                            ? `${t._count.instances} student assessment(s) use this template and must be cleared first — deletion will be blocked until then.`
+                            : "This is permanent and cannot be undone."
+                        }
+                        triggerClassName="btn-ghost text-xs text-red-600"
+                      />
+                    )}
+                    {!perms.edit && !perms.delete && <span className="text-xs text-slate-300">—</span>}
                   </div>
                 ),
               },

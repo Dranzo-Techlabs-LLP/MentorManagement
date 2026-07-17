@@ -2,6 +2,7 @@ import { redirect } from "next/navigation";
 import { Send, Inbox, MailOpen, Trash2 } from "lucide-react";
 import { prisma } from "@/lib/db";
 import { getSession } from "@/lib/auth";
+import { getPerms } from "@/lib/permissions";
 import { sendMessage, deleteMessage } from "@/lib/actions";
 import { PageHeader, Avatar, Badge, EmptyState } from "@/components/ui/primitives";
 import { Panel } from "@/components/dash/widgets";
@@ -14,6 +15,7 @@ import { timeAgo, titleCase } from "@/lib/utils";
 export default async function MessagesPage() {
   const session = await getSession();
   if (!session) redirect("/login");
+  const perms = await getPerms("messages");
 
   const [inbox, sent, users] = await Promise.all([
     prisma.message.findMany({
@@ -42,7 +44,7 @@ export default async function MessagesPage() {
       <PageHeader
         title="Communication"
         subtitle={`Admin inbox · ${unread} unread`}
-        action={<ComposeModal users={users} />}
+        action={perms.create ? <ComposeModal users={users} /> : undefined}
       />
 
       <div className="grid gap-4 lg:grid-cols-2">
@@ -68,6 +70,7 @@ export default async function MessagesPage() {
                   body={m.body}
                   time={timeAgo(m.createdAt)}
                   unread={!m.isRead}
+                  canDelete={perms.delete}
                 />
               ))}
             </div>
@@ -95,6 +98,7 @@ export default async function MessagesPage() {
                   subject={m.subject}
                   body={m.body}
                   time={timeAgo(m.createdAt)}
+                  canDelete={perms.delete}
                 />
               ))}
             </div>
@@ -114,6 +118,7 @@ function MessageRow({
   body,
   time,
   unread,
+  canDelete,
 }: {
   id: string;
   name: string;
@@ -123,6 +128,7 @@ function MessageRow({
   body: string;
   time: string;
   unread?: boolean;
+  canDelete?: boolean;
 }) {
   return (
     <div className="group flex gap-3 py-3">
@@ -135,15 +141,17 @@ function MessageRow({
           </p>
           <div className="flex shrink-0 items-center gap-2">
             <span className="text-xs text-slate-400">{time}</span>
-            <span className="opacity-0 transition group-hover:opacity-100">
-              <ConfirmDeleteButton
-                action={deleteMessage}
-                hiddenFields={{ id }}
-                itemLabel="this message"
-                triggerClassName="btn-ghost px-1.5 py-1 text-red-500"
-                triggerLabel={<Trash2 className="h-3.5 w-3.5" />}
-              />
-            </span>
+            {canDelete && (
+              <span className="opacity-0 transition group-hover:opacity-100">
+                <ConfirmDeleteButton
+                  action={deleteMessage}
+                  hiddenFields={{ id }}
+                  itemLabel="this message"
+                  triggerClassName="btn-ghost px-1.5 py-1 text-red-500"
+                  triggerLabel={<Trash2 className="h-3.5 w-3.5" />}
+                />
+              </span>
+            )}
           </div>
         </div>
         <p className="text-xs text-slate-400">{titleCase(role)}</p>

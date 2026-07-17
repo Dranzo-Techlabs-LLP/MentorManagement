@@ -1,12 +1,12 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
-import { requireRole } from "@/lib/guard";
+import { requirePermission } from "@/lib/permissions";
 import { apiError } from "@/lib/api-helpers";
 
 // GET /api/mentors/:id/students — students currently assigned to this mentor
 export async function GET(_req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   try {
-    await requireRole("SUPER_ADMIN", "CHIEF_MENTOR", "SUPERVISOR");
+    await requirePermission("mentors", "view");
     const { id } = await params;
     const mentor = await prisma.user.findFirst({ where: { id, role: "MENTOR" }, select: { id: true } });
     if (!mentor) return NextResponse.json({ ok: false, error: "Mentor not found." }, { status: 404 });

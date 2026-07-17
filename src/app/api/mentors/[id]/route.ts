@@ -1,14 +1,14 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
 import { getSession } from "@/lib/auth";
-import { requireRole } from "@/lib/guard";
+import { requirePermission } from "@/lib/permissions";
 import { mentorInputSchema, zodFieldError } from "@/lib/validation";
 import { apiError } from "@/lib/api-helpers";
 
 // GET /api/mentors/:id
 export async function GET(_req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   try {
-    await requireRole("SUPER_ADMIN", "CHIEF_MENTOR", "SUPERVISOR");
+    await requirePermission("mentors", "view");
     const { id } = await params;
     const mentor = await prisma.user.findFirst({
       where: { id, role: "MENTOR" },
@@ -30,7 +30,7 @@ export async function GET(_req: NextRequest, { params }: { params: Promise<{ id:
 // PUT /api/mentors/:id
 export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   try {
-    await requireRole("SUPER_ADMIN");
+    await requirePermission("mentors", "edit");
     const { id } = await params;
     const existing = await prisma.user.findFirst({ where: { id, role: "MENTOR" } });
     if (!existing) return NextResponse.json({ ok: false, error: "Mentor not found." }, { status: 404 });
@@ -83,7 +83,7 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
 // recommends deactivation instead.
 export async function DELETE(_req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   try {
-    const sess = await requireRole("SUPER_ADMIN");
+    const sess = await requirePermission("mentors", "delete");
     const { id } = await params;
     if (id === sess.userId) {
       return NextResponse.json({ ok: false, error: "You cannot delete your own account." }, { status: 400 });

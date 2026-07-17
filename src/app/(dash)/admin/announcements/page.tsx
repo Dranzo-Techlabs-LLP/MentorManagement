@@ -1,6 +1,7 @@
 import { Megaphone, Plus, Pin, Pencil } from "lucide-react";
 import type { Announcement, Audience } from "@prisma/client";
 import { prisma } from "@/lib/db";
+import { getPerms } from "@/lib/permissions";
 import { createAnnouncement, updateAnnouncement, deleteAnnouncement } from "@/lib/actions";
 import { PageHeader, Badge, EmptyState } from "@/components/ui/primitives";
 import { Panel } from "@/components/dash/widgets";
@@ -29,6 +30,7 @@ export default async function AnnouncementsPage({
 }) {
   const { page: pageParam } = await searchParams;
   const page = Math.max(1, Number(pageParam) || 1);
+  const perms = await getPerms("announcements");
 
   const [announcements, total] = await Promise.all([
     prisma.announcement.findMany({
@@ -44,7 +46,7 @@ export default async function AnnouncementsPage({
       <PageHeader
         title="Announcements"
         subtitle="Program-wide broadcasts and notices"
-        action={<NewAnnouncementModal />}
+        action={perms.create ? <NewAnnouncementModal /> : undefined}
       />
 
       {announcements.length === 0 ? (
@@ -79,13 +81,15 @@ export default async function AnnouncementsPage({
                   </div>
                 </div>
                 <div className="flex shrink-0 items-center gap-1">
-                  <EditAnnouncementModal announcement={a} />
-                  <ConfirmDeleteButton
-                    action={deleteAnnouncement}
-                    hiddenFields={{ id: a.id }}
-                    itemLabel={a.title}
-                    triggerClassName="btn-ghost text-xs text-red-600"
-                  />
+                  {perms.edit && <EditAnnouncementModal announcement={a} />}
+                  {perms.delete && (
+                    <ConfirmDeleteButton
+                      action={deleteAnnouncement}
+                      hiddenFields={{ id: a.id }}
+                      itemLabel={a.title}
+                      triggerClassName="btn-ghost text-xs text-red-600"
+                    />
+                  )}
                 </div>
               </div>
               <p className="mt-3 whitespace-pre-line text-sm text-slate-600">{a.body}</p>

@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
 import { getSession } from "@/lib/auth";
-import { requireRole } from "@/lib/guard";
+import { requirePermission } from "@/lib/permissions";
 import { apiError } from "@/lib/api-helpers";
 import type { Prisma } from "@prisma/client";
 
@@ -10,7 +10,7 @@ const DEFAULT_PAGE_SIZE = 20;
 // GET /api/sessions?status=&page=&pageSize=
 export async function GET(req: NextRequest) {
   try {
-    await requireRole("SUPER_ADMIN", "CHIEF_MENTOR", "SUPERVISOR", "MENTOR");
+    await requirePermission("sessions", "view");
     const { searchParams } = new URL(req.url);
     const status = searchParams.get("status");
     const page = Math.max(1, Number(searchParams.get("page")) || 1);
@@ -35,7 +35,7 @@ export async function GET(req: NextRequest) {
 // POST /api/sessions
 export async function POST(req: NextRequest) {
   try {
-    const sess = await requireRole("MENTOR", "SUPERVISOR", "CHIEF_MENTOR", "SUPER_ADMIN");
+    const sess = await requirePermission("sessions", "create");
     const body = await req.json().catch(() => null);
     if (!body || typeof body !== "object") return NextResponse.json({ ok: false, error: "Invalid JSON body." }, { status: 400 });
 

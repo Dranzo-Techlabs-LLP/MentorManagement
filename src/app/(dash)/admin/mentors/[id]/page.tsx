@@ -5,6 +5,7 @@ import {
   Globe, Clock, Languages, Award, UserPlus, UserX, Pencil,
 } from "lucide-react";
 import { prisma } from "@/lib/db";
+import { getPerms } from "@/lib/permissions";
 import { saveUser, deleteUser, assignMentor } from "@/lib/actions";
 import { PageHeader, Avatar, Badge, EmptyState } from "@/components/ui/primitives";
 import { Panel, MiniMetric } from "@/components/dash/widgets";
@@ -33,6 +34,7 @@ export default async function MentorProfilePage({ params }: { params: Promise<{ 
   });
   if (!mentor) notFound();
 
+  const [perms, studentPerms] = await Promise.all([getPerms("mentors"), getPerms("students")]);
   const [ratingAgg, institutions, supervisors, otherStudents] = await Promise.all([
     prisma.feedback.aggregate({ where: { mentorId: id, rating: { not: null } }, _avg: { rating: true }, _count: { rating: true } }),
     prisma.institution.findMany({ orderBy: { name: "asc" }, select: { id: true, name: true } }),
@@ -77,18 +79,20 @@ export default async function MentorProfilePage({ params }: { params: Promise<{ 
           </div>
 
           <div className="flex shrink-0 flex-col gap-2">
-            <EditMentorModal mentor={mentor} institutions={institutions} supervisors={supervisors} />
-            <ConfirmDeleteButton
-              action={deleteUser}
-              hiddenFields={{ id: mentor.id }}
-              itemLabel={mentor.name}
-              warning={
-                mentor._count.studentsAsMentor > 0
-                  ? `This mentor has ${mentor._count.studentsAsMentor} student(s) assigned — they will be unassigned. This is permanent and cannot be undone.`
-                  : "This is permanent and cannot be undone."
-              }
-              triggerClassName="btn-outline text-red-600"
-            />
+            {perms.edit && <EditMentorModal mentor={mentor} institutions={institutions} supervisors={supervisors} />}
+            {perms.delete && (
+              <ConfirmDeleteButton
+                action={deleteUser}
+                hiddenFields={{ id: mentor.id }}
+                itemLabel={mentor.name}
+                warning={
+                  mentor._count.studentsAsMentor > 0
+                    ? `This mentor has ${mentor._count.studentsAsMentor} student(s) assigned — they will be unassigned. This is permanent and cannot be undone.`
+                    : "This is permanent and cannot be undone."
+                }
+                triggerClassName="btn-outline text-red-600"
+              />
+            )}
           </div>
         </div>
       </div>
@@ -109,7 +113,7 @@ export default async function MentorProfilePage({ params }: { params: Promise<{ 
       <div className="mt-4">
         <Panel
           title="Assigned Students"
-          action={<AssignStudentModal mentorId={mentor.id} students={otherStudents} />}
+          action={studentPerms.edit ? <AssignStudentModal mentorId={mentor.id} students={otherStudents} /> : undefined}
         >
           {mentor.studentsAsMentor.length === 0 ? (
             <EmptyState
@@ -132,13 +136,15 @@ export default async function MentorProfilePage({ params }: { params: Promise<{ 
                   </Link>
                   <div className="flex shrink-0 items-center gap-3">
                     <StatusBadge status={st.status} />
-                    <ActionForm action={assignMentor} className="inline-flex">
-                      <input type="hidden" name="studentId" value={st.id} />
-                      <input type="hidden" name="mentorId" value="" />
-                      <SubmitButton className="btn-ghost text-xs text-red-600" pendingText="…">
-                        <UserX className="h-3.5 w-3.5" /> Unassign
-                      </SubmitButton>
-                    </ActionForm>
+                    {studentPerms.edit && (
+                      <ActionForm action={assignMentor} className="inline-flex">
+                        <input type="hidden" name="studentId" value={st.id} />
+                        <input type="hidden" name="mentorId" value="" />
+                        <SubmitButton className="btn-ghost text-xs text-red-600" pendingText="…">
+                          <UserX className="h-3.5 w-3.5" /> Unassign
+                        </SubmitButton>
+                      </ActionForm>
+                    )}
                   </div>
                 </div>
               ))}

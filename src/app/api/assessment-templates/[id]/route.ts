@@ -1,12 +1,12 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
-import { requireRole } from "@/lib/guard";
+import { requirePermission } from "@/lib/permissions";
 import { apiError } from "@/lib/api-helpers";
 import type { Prisma } from "@prisma/client";
 
 export async function GET(_req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   try {
-    await requireRole("SUPER_ADMIN", "CHIEF_MENTOR", "SUPERVISOR", "MENTOR");
+    await requirePermission("assessments", "view");
     const { id } = await params;
     const template = await prisma.assessmentTemplate.findUnique({
       where: { id }, include: { _count: { select: { instances: true } } },
@@ -20,7 +20,7 @@ export async function GET(_req: NextRequest, { params }: { params: Promise<{ id:
 
 export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   try {
-    await requireRole("SUPER_ADMIN", "CHIEF_MENTOR");
+    await requirePermission("assessments", "edit");
     const { id } = await params;
     const existing = await prisma.assessmentTemplate.findUnique({ where: { id } });
     if (!existing) return NextResponse.json({ ok: false, error: "Template not found." }, { status: 404 });
@@ -54,7 +54,7 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
 
 export async function DELETE(_req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   try {
-    await requireRole("SUPER_ADMIN");
+    await requirePermission("assessments", "delete");
     const { id } = await params;
     const existing = await prisma.assessmentTemplate.findUnique({
       where: { id }, select: { title: true, _count: { select: { instances: true } } },

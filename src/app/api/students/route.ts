@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
 import { getSession } from "@/lib/auth";
-import { requireRole } from "@/lib/guard";
+import { requirePermission } from "@/lib/permissions";
 import { studentInputSchema, zodFieldError } from "@/lib/validation";
 import { apiError } from "@/lib/api-helpers";
 import { ageFromDob, ageCategory } from "@/lib/utils";
@@ -12,7 +12,7 @@ const DEFAULT_PAGE_SIZE = 20;
 // GET /api/students?q=&page=&pageSize=  — paginated, searchable list
 export async function GET(req: NextRequest) {
   try {
-    await requireRole("SUPER_ADMIN", "CHIEF_MENTOR", "SUPERVISOR");
+    await requirePermission("students", "view");
     const { searchParams } = new URL(req.url);
     const q = searchParams.get("q")?.trim();
     const page = Math.max(1, Number(searchParams.get("page")) || 1);
@@ -44,7 +44,7 @@ export async function GET(req: NextRequest) {
 // POST /api/students  — create
 export async function POST(req: NextRequest) {
   try {
-    await requireRole("SUPER_ADMIN", "CHIEF_MENTOR", "SUPERVISOR");
+    await requirePermission("students", "create");
     const body = await req.json().catch(() => null);
     if (!body || typeof body !== "object") {
       return NextResponse.json({ ok: false, error: "Invalid JSON body." }, { status: 400 });

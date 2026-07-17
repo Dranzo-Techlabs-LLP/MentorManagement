@@ -1,6 +1,7 @@
 import { Building2, Plus, Pencil } from "lucide-react";
 import type { Institution, InstitutionType } from "@prisma/client";
 import { prisma } from "@/lib/db";
+import { getPerms } from "@/lib/permissions";
 import { saveInstitution, deleteInstitution } from "@/lib/actions";
 import { PageHeader, Badge } from "@/components/ui/primitives";
 import { Panel } from "@/components/dash/widgets";
@@ -22,6 +23,7 @@ export default async function InstitutionsPage({
 }) {
   const { page: pageParam } = await searchParams;
   const page = Math.max(1, Number(pageParam) || 1);
+  const perms = await getPerms("institutions");
 
   const [institutions, total] = await Promise.all([
     prisma.institution.findMany({
@@ -39,13 +41,15 @@ export default async function InstitutionsPage({
         title="Institutions"
         subtitle="Partner schools, mahalls, colleges & client organisations"
         action={
-          <Modal
-            title="Add Institution"
-            triggerClassName="btn-primary"
-            triggerLabel={<><Plus className="h-4 w-4" /> Add Institution</>}
-          >
-            <InstitutionForm />
-          </Modal>
+          perms.create ? (
+            <Modal
+              title="Add Institution"
+              triggerClassName="btn-primary"
+              triggerLabel={<><Plus className="h-4 w-4" /> Add Institution</>}
+            >
+              <InstitutionForm />
+            </Modal>
+          ) : undefined
         }
       />
 
@@ -78,24 +82,29 @@ export default async function InstitutionsPage({
               header: "Actions",
               cell: (i) => (
                 <div className="flex items-center gap-1">
-                  <Modal
-                    title="Edit Institution"
-                    triggerClassName="btn-ghost text-xs"
-                    triggerLabel={<><Pencil className="h-3.5 w-3.5" /> Edit</>}
-                  >
-                    <InstitutionForm institution={i} />
-                  </Modal>
-                  <ConfirmDeleteButton
-                    action={deleteInstitution}
-                    hiddenFields={{ id: i.id }}
-                    itemLabel={i.name}
-                    warning={
-                      i._count.students + i._count.users > 0
-                        ? `${i._count.students} student(s) and ${i._count.users} staff account(s) are linked to this institution — they will just lose this affiliation, not be deleted. This is permanent.`
-                        : "This is permanent and cannot be undone."
-                    }
-                    triggerClassName="btn-ghost text-xs text-red-600"
-                  />
+                  {perms.edit && (
+                    <Modal
+                      title="Edit Institution"
+                      triggerClassName="btn-ghost text-xs"
+                      triggerLabel={<><Pencil className="h-3.5 w-3.5" /> Edit</>}
+                    >
+                      <InstitutionForm institution={i} />
+                    </Modal>
+                  )}
+                  {perms.delete && (
+                    <ConfirmDeleteButton
+                      action={deleteInstitution}
+                      hiddenFields={{ id: i.id }}
+                      itemLabel={i.name}
+                      warning={
+                        i._count.students + i._count.users > 0
+                          ? `${i._count.students} student(s) and ${i._count.users} staff account(s) are linked to this institution — they will just lose this affiliation, not be deleted. This is permanent.`
+                          : "This is permanent and cannot be undone."
+                      }
+                      triggerClassName="btn-ghost text-xs text-red-600"
+                    />
+                  )}
+                  {!perms.edit && !perms.delete && <span className="text-xs text-slate-300">—</span>}
                 </div>
               ),
             },

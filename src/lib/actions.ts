@@ -6,9 +6,11 @@ import path from "path";
 import { prisma } from "./db";
 import { getSession, hashPassword, verifyPassword, createSessionCookie } from "./auth";
 import { requireSession, requireRole } from "./guard";
+import { requirePermission, requireSuperAdmin } from "./permissions";
+import { RESOURCES, DEFAULT_MATRIX, resourceForRole } from "./permission-data";
 import { ageFromDob, ageCategory } from "./utils";
 import { studentInputSchema, mentorInputSchema, institutionInputSchema, zodFieldError } from "./validation";
-import type { Prisma, AgeCategory } from "@prisma/client";
+import type { Prisma, AgeCategory, Role } from "@prisma/client";
 
 type Result = { ok: boolean; error?: string; id?: string };
 
@@ -73,7 +75,7 @@ export async function submitApplication(fd: FormData): Promise<Result> {
 // APPLICATIONS — admin review
 // ============================================================================
 export async function approveApplication(fd: FormData): Promise<Result> {
-  await requireRole("SUPER_ADMIN", "CHIEF_MENTOR");
+  await requirePermission("applications", "edit");
   const id = s(fd, "id");
   const app = await prisma.parentApplication.findUnique({ where: { id } });
   if (!app) return { ok: false, error: "Application not found" };
@@ -109,7 +111,7 @@ export async function approveApplication(fd: FormData): Promise<Result> {
 }
 
 export async function rejectApplication(fd: FormData): Promise<Result> {
-  await requireRole("SUPER_ADMIN", "CHIEF_MENTOR");
+  await requirePermission("applications", "edit");
   const id = s(fd, "id");
   await prisma.parentApplication.update({
     where: { id }, data: { status: "REJECTED", reviewNote: sn(fd, "reviewNote"), reviewedById: (await getSession())!.userId },
@@ -120,7 +122,7 @@ export async function rejectApplication(fd: FormData): Promise<Result> {
 }
 
 export async function deleteApplication(fd: FormData): Promise<Result> {
-  await requireRole("SUPER_ADMIN", "CHIEF_MENTOR");
+  await requirePermission("applications", "delete");
   const id = s(fd, "id");
   if (!id) return { ok: false, error: "Missing application." };
   const app = await prisma.parentApplication.findUnique({ where: { id }, select: { studentName: true } });
@@ -135,8 +137,8 @@ export async function deleteApplication(fd: FormData): Promise<Result> {
 // STUDENTS
 // ============================================================================
 export async function saveStudent(fd: FormData): Promise<Result> {
-  await requireRole("SUPER_ADMIN", "CHIEF_MENTOR", "SUPERVISOR");
   const id = sn(fd, "id");
+  await requirePermission("students", id ? "edit" : "create");
 
   const parsed = studentInputSchema.safeParse({
     fullName: s(fd, "fullName"), email: sn(fd, "email"), phone: sn(fd, "phone"), dob: sn(fd, "dob"),
@@ -185,7 +187,7 @@ export async function saveStudent(fd: FormData): Promise<Result> {
 }
 
 export async function deleteStudent(fd: FormData): Promise<Result> {
-  await requireRole("SUPER_ADMIN");
+  await requirePermission("students", "delete");
   const id = s(fd, "id");
   if (!id) return { ok: false, error: "Missing student." };
   const student = await prisma.student.findUnique({ where: { id }, select: { fullName: true } });
@@ -203,7 +205,7 @@ export async function deleteStudent(fd: FormData): Promise<Result> {
 
 // SWOC analysis — mentor/staff create or update a mentee's SWOC (one per student).
 export async function upsertSwoc(fd: FormData): Promise<Result> {
-  const sess = await requireRole("MENTOR", "SUPERVISOR", "CHIEF_MENTOR", "SUPER_ADMIN");
+  const sess = await requirePermission("portfolio", "edit");
   const studentId = s(fd, "studentId");
   if (!studentId) return { ok: false, error: "Missing student." };
   const data = {
@@ -225,8 +227,10 @@ export async function upsertSwoc(fd: FormData): Promise<Result> {
 // USERS (staff / parents)
 // ============================================================================
 export async function saveUser(fd: FormData): Promise<Result> {
-  await requireRole("SUPER_ADMIN");
   const id = sn(fd, "id");
+  const targetRole = s(fd, "role") as Role;
+  const sess = await requirePermission(resourceForRole(targetRole), id ? "edit" : "create");
+  const isSelfEdit = !!id && id === sess.userId;
 
   const parsed = mentorInputSchema.safeParse({
     name: s(fd, "name"), email: s(fd, "email"), phone: sn(fd, "phone"), yearsExperience: sn(fd, "yearsExperience"),
@@ -245,36 +249,52 @@ export async function saveUser(fd: FormData): Promise<Result> {
     mentoringMode: (sn(fd, "mentoringMode") || null) as Prisma.UserCreateInput["mentoringMode"],
     city: sn(fd, "city"), timezone: sn(fd, "timezone"), languages: sn(fd, "languages"),
     exposure: sn(fd, "exposure"), yearsExperience: parsed.data.yearsExperience ?? null,
+    // RBAC permission role (empty → fall back to system role for the workspace role)
+    appRoleId: sn(fd, "appRoleId"),
   };
   if (id) {
-    await prisma.user.update({ where: { id }, data: base });
+    // Only update fields the submitting form actually contained — partial forms
+    // (e.g. the Parent modal, which has no institution/manager/mentor fields)
+    // must not null out values they never showed.
+    const data = Object.fromEntries(
+      Object.entries(base).filter(
+        ([key]) =>
+          (key === "name" || key === "email" || fd.has(key)) &&
+          // lockout protection: never let a user change their own role/permission role
+          !(isSelfEdit && (key === "role" || key === "appRoleId")),
+      ),
+    ) as Prisma.UserUpdateInput;
+    await prisma.user.update({ where: { id }, data });
     await log("UPDATE", "User", id, { role: base.role });
-    touch("/admin/users", "/admin/mentors", "/chief/mentors", "/supervisor/mentors", `/admin/mentors/${id}`);
+    touch("/admin/users", "/admin/mentors", "/admin/parents", "/chief/mentors", "/supervisor/mentors", `/admin/mentors/${id}`);
     return { ok: true, id };
   }
   const pwd = s(fd, "password") || "Elevate@123";
   const user = await prisma.user.create({ data: { ...base, passwordHash: await hashPassword(pwd) } });
   await log("CREATE", "User", user.id, { role: base.role });
-  touch("/admin/users", "/admin/mentors", "/chief/mentors", "/supervisor/mentors");
+  touch("/admin/users", "/admin/mentors", "/admin/parents", "/chief/mentors", "/supervisor/mentors");
   return { ok: true, id: user.id };
 }
 
 export async function setUserStatus(fd: FormData): Promise<Result> {
-  await requireRole("SUPER_ADMIN");
   const id = s(fd, "id");
+  const target = await prisma.user.findUnique({ where: { id }, select: { role: true } });
+  if (!target) return { ok: false, error: "User not found." };
+  await requirePermission(resourceForRole(target.role), "edit");
   await prisma.user.update({ where: { id }, data: { status: s(fd, "status") as Prisma.UserUpdateInput["status"] } });
   touch("/admin/users", "/admin/mentors", `/admin/mentors/${id}`);
   return { ok: true };
 }
 
 export async function deleteUser(fd: FormData): Promise<Result> {
-  const sess = await requireRole("SUPER_ADMIN");
+  const sess = await requireSession();
   const id = s(fd, "id");
   if (!id) return { ok: false, error: "Missing user." };
   if (id === sess.userId) return { ok: false, error: "You cannot delete your own account." };
 
   const user = await prisma.user.findUnique({ where: { id } });
   if (!user) return { ok: false, error: "User not found." };
+  await requirePermission(resourceForRole(user.role), "delete");
 
   const [sessionCount, sentMsg, recvMsg] = await Promise.all([
     prisma.mentoringSession.count({ where: { mentorId: id } }),
@@ -307,8 +327,8 @@ export async function deleteUser(fd: FormData): Promise<Result> {
 // INSTITUTIONS
 // ============================================================================
 export async function saveInstitution(fd: FormData): Promise<Result> {
-  await requireRole("SUPER_ADMIN");
   const id = sn(fd, "id");
+  await requirePermission("institutions", id ? "edit" : "create");
 
   const parsed = institutionInputSchema.safeParse({ name: s(fd, "name"), contactEmail: sn(fd, "contactEmail") });
   if (!parsed.success) return { ok: false, error: zodFieldError(parsed) };
@@ -325,7 +345,7 @@ export async function saveInstitution(fd: FormData): Promise<Result> {
 }
 
 export async function deleteInstitution(fd: FormData): Promise<Result> {
-  await requireRole("SUPER_ADMIN");
+  await requirePermission("institutions", "delete");
   const id = s(fd, "id");
   if (!id) return { ok: false, error: "Missing institution." };
   const inst = await prisma.institution.findUnique({ where: { id }, select: { name: true } });
@@ -345,7 +365,7 @@ export async function deleteInstitution(fd: FormData): Promise<Result> {
 // SESSIONS
 // ============================================================================
 export async function createSession(fd: FormData): Promise<Result> {
-  const sess = await requireRole("MENTOR", "SUPERVISOR", "CHIEF_MENTOR", "SUPER_ADMIN");
+  const sess = await requirePermission("sessions", "create");
   const studentIds = fd.getAll("studentIds").map((x) => x.toString()).filter(Boolean);
   const session = await prisma.mentoringSession.create({
     data: {
@@ -366,7 +386,7 @@ export async function createSession(fd: FormData): Promise<Result> {
 }
 
 export async function completeSession(fd: FormData): Promise<Result> {
-  await requireRole("MENTOR", "SUPERVISOR", "CHIEF_MENTOR", "SUPER_ADMIN");
+  await requirePermission("sessions", "edit");
   const id = s(fd, "id");
   await prisma.mentoringSession.update({
     where: { id },
@@ -397,7 +417,7 @@ export async function completeSession(fd: FormData): Promise<Result> {
 }
 
 export async function updateSession(fd: FormData): Promise<Result> {
-  await requireRole("MENTOR", "SUPERVISOR", "CHIEF_MENTOR", "SUPER_ADMIN");
+  await requirePermission("sessions", "edit");
   const id = s(fd, "id");
   if (!id) return { ok: false, error: "Missing session." };
   const title = s(fd, "title");
@@ -418,7 +438,7 @@ export async function updateSession(fd: FormData): Promise<Result> {
 }
 
 export async function deleteSession(fd: FormData): Promise<Result> {
-  await requireRole("SUPERVISOR", "CHIEF_MENTOR", "SUPER_ADMIN");
+  await requirePermission("sessions", "delete");
   const id = s(fd, "id");
   if (!id) return { ok: false, error: "Missing session." };
   const session = await prisma.mentoringSession.findUnique({ where: { id }, select: { title: true } });
@@ -433,7 +453,7 @@ export async function deleteSession(fd: FormData): Promise<Result> {
 // REPORTS
 // ============================================================================
 export async function createReport(fd: FormData): Promise<Result> {
-  const sess = await requireRole("MENTOR", "SUPERVISOR", "CHIEF_MENTOR", "SUPER_ADMIN");
+  const sess = await requirePermission("reports", "create");
   const report = await prisma.progressReport.create({
     data: {
       studentId: s(fd, "studentId"), title: s(fd, "title") || "Progress Report",
@@ -453,7 +473,7 @@ export async function createReport(fd: FormData): Promise<Result> {
 }
 
 export async function reviewReport(fd: FormData): Promise<Result> {
-  const sess = await requireRole("SUPERVISOR", "CHIEF_MENTOR", "SUPER_ADMIN");
+  const sess = await requirePermission("reports", "edit");
   const id = s(fd, "id");
   await prisma.progressReport.update({ where: { id }, data: { status: "REVIEWED", reviewedById: sess.userId } });
   await log("REVIEW", "ProgressReport", id);
@@ -462,7 +482,7 @@ export async function reviewReport(fd: FormData): Promise<Result> {
 }
 
 export async function deleteReport(fd: FormData): Promise<Result> {
-  await requireRole("SUPERVISOR", "CHIEF_MENTOR", "SUPER_ADMIN");
+  await requirePermission("reports", "delete");
   const id = s(fd, "id");
   if (!id) return { ok: false, error: "Missing report." };
   const report = await prisma.progressReport.findUnique({ where: { id }, select: { title: true } });
@@ -474,7 +494,7 @@ export async function deleteReport(fd: FormData): Promise<Result> {
 }
 
 export async function shareReport(fd: FormData): Promise<Result> {
-  await requireRole("MENTOR", "SUPERVISOR", "CHIEF_MENTOR", "SUPER_ADMIN");
+  await requirePermission("reports", "edit");
   const id = s(fd, "id");
   const report = await prisma.progressReport.update({
     where: { id }, data: { sharedWithParent: true, status: "PUBLISHED" },
@@ -490,7 +510,7 @@ export async function shareReport(fd: FormData): Promise<Result> {
 // COMMUNICATION
 // ============================================================================
 export async function sendMessage(fd: FormData): Promise<Result> {
-  const sess = await requireSession();
+  const sess = await requirePermission("messages", "create");
   const recipientId = s(fd, "recipientId");
   if (!recipientId) return { ok: false, error: "Select a recipient" };
   const msg = await prisma.message.create({
@@ -513,7 +533,7 @@ export async function markMessageRead(fd: FormData): Promise<Result> {
 // Deletes the message for both parties — this is a shared inbox row, not per-user soft delete.
 // Only the sender or recipient may remove it.
 export async function deleteMessage(fd: FormData): Promise<Result> {
-  const sess = await requireSession();
+  const sess = await requirePermission("messages", "delete");
   const id = s(fd, "id");
   const msg = await prisma.message.findUnique({ where: { id } });
   if (!msg) return { ok: false, error: "Message not found." };
@@ -526,7 +546,7 @@ export async function deleteMessage(fd: FormData): Promise<Result> {
 }
 
 export async function createAnnouncement(fd: FormData): Promise<Result> {
-  const sess = await requireRole("SUPER_ADMIN", "CHIEF_MENTOR", "SUPERVISOR");
+  const sess = await requirePermission("announcements", "create");
   const a = await prisma.announcement.create({
     data: {
       authorId: sess.userId, title: s(fd, "title"), body: s(fd, "body"),
@@ -539,7 +559,7 @@ export async function createAnnouncement(fd: FormData): Promise<Result> {
 }
 
 export async function updateAnnouncement(fd: FormData): Promise<Result> {
-  await requireRole("SUPER_ADMIN", "CHIEF_MENTOR", "SUPERVISOR");
+  await requirePermission("announcements", "edit");
   const id = s(fd, "id");
   if (!id) return { ok: false, error: "Missing announcement." };
   const title = s(fd, "title");
@@ -559,7 +579,7 @@ export async function updateAnnouncement(fd: FormData): Promise<Result> {
 }
 
 export async function deleteAnnouncement(fd: FormData): Promise<Result> {
-  await requireRole("SUPER_ADMIN", "CHIEF_MENTOR");
+  await requirePermission("announcements", "delete");
   const id = s(fd, "id");
   if (!id) return { ok: false, error: "Missing announcement." };
   const a = await prisma.announcement.findUnique({ where: { id }, select: { title: true } });
@@ -574,7 +594,7 @@ export async function deleteAnnouncement(fd: FormData): Promise<Result> {
 // FEEDBACK
 // ============================================================================
 export async function submitFeedback(fd: FormData): Promise<Result> {
-  const sess = await requireSession();
+  const sess = await requirePermission("feedback", "create");
   const f = await prisma.feedback.create({
     data: {
       fromUserId: sess.userId, studentId: sn(fd, "studentId"), mentorId: sn(fd, "mentorId"),
@@ -586,7 +606,7 @@ export async function submitFeedback(fd: FormData): Promise<Result> {
 }
 
 export async function markFeedbackReviewed(fd: FormData): Promise<Result> {
-  await requireRole("SUPERVISOR", "CHIEF_MENTOR", "SUPER_ADMIN", "MENTOR");
+  await requirePermission("feedback", "edit");
   await prisma.feedback.update({ where: { id: s(fd, "id") }, data: { status: "REVIEWED" } });
   touch("/supervisor/feedback");
   return { ok: true };
@@ -595,7 +615,7 @@ export async function markFeedbackReviewed(fd: FormData): Promise<Result> {
 // Feedback text is submitted by a parent/student and isn't editable by staff (that would let staff
 // rewrite someone else's review) — only moderation-delete is offered here, not update.
 export async function deleteFeedback(fd: FormData): Promise<Result> {
-  await requireRole("SUPERVISOR", "CHIEF_MENTOR", "SUPER_ADMIN");
+  await requirePermission("feedback", "delete");
   const id = s(fd, "id");
   if (!id) return { ok: false, error: "Missing feedback." };
   const fb = await prisma.feedback.findUnique({ where: { id } });
@@ -610,7 +630,7 @@ export async function deleteFeedback(fd: FormData): Promise<Result> {
 // TASKS & GOALS
 // ============================================================================
 export async function createTask(fd: FormData): Promise<Result> {
-  const sess = await requireSession();
+  const sess = await requirePermission("portfolio", "create");
   const t = await prisma.task.create({
     data: {
       title: s(fd, "title"), description: sn(fd, "description"), studentId: sn(fd, "studentId"),
@@ -622,7 +642,7 @@ export async function createTask(fd: FormData): Promise<Result> {
 }
 
 export async function toggleTask(fd: FormData): Promise<Result> {
-  await requireSession();
+  await requirePermission("portfolio", "edit");
   const id = s(fd, "id");
   const t = await prisma.task.findUnique({ where: { id } });
   await prisma.task.update({ where: { id }, data: { status: t?.status === "DONE" ? "PENDING" : "DONE" } });
@@ -631,7 +651,7 @@ export async function toggleTask(fd: FormData): Promise<Result> {
 }
 
 export async function updateTask(fd: FormData): Promise<Result> {
-  await requireSession();
+  await requirePermission("portfolio", "edit");
   const id = s(fd, "id");
   if (!id) return { ok: false, error: "Missing task." };
   const title = s(fd, "title");
@@ -645,7 +665,7 @@ export async function updateTask(fd: FormData): Promise<Result> {
 }
 
 export async function deleteTask(fd: FormData): Promise<Result> {
-  await requireRole("MENTOR", "SUPERVISOR", "CHIEF_MENTOR", "SUPER_ADMIN");
+  await requirePermission("portfolio", "delete");
   const id = s(fd, "id");
   if (!id) return { ok: false, error: "Missing task." };
   const t = await prisma.task.findUnique({ where: { id } });
@@ -656,7 +676,7 @@ export async function deleteTask(fd: FormData): Promise<Result> {
 }
 
 export async function createGoal(fd: FormData): Promise<Result> {
-  const sess = await requireSession();
+  const sess = await requirePermission("portfolio", "create");
   const g = await prisma.goal.create({
     data: {
       studentId: s(fd, "studentId"), title: s(fd, "title"), description: sn(fd, "description"),
@@ -670,7 +690,7 @@ export async function createGoal(fd: FormData): Promise<Result> {
 }
 
 export async function updateGoalProgress(fd: FormData): Promise<Result> {
-  await requireSession();
+  await requirePermission("portfolio", "edit");
   const id = s(fd, "id");
   const progress = num(fd, "progress") ?? 0;
   await prisma.goal.update({
@@ -682,7 +702,7 @@ export async function updateGoalProgress(fd: FormData): Promise<Result> {
 }
 
 export async function updateGoal(fd: FormData): Promise<Result> {
-  await requireSession();
+  await requirePermission("portfolio", "edit");
   const id = s(fd, "id");
   if (!id) return { ok: false, error: "Missing goal." };
   const title = s(fd, "title");
@@ -700,7 +720,7 @@ export async function updateGoal(fd: FormData): Promise<Result> {
 }
 
 export async function deleteGoal(fd: FormData): Promise<Result> {
-  await requireRole("MENTOR", "SUPERVISOR", "CHIEF_MENTOR", "SUPER_ADMIN");
+  await requirePermission("portfolio", "delete");
   const id = s(fd, "id");
   if (!id) return { ok: false, error: "Missing goal." };
   const g = await prisma.goal.findUnique({ where: { id } });
@@ -714,7 +734,7 @@ export async function deleteGoal(fd: FormData): Promise<Result> {
 // GROWTH / ACHIEVEMENTS / DOCUMENTS
 // ============================================================================
 export async function addGrowthRecord(fd: FormData): Promise<Result> {
-  const sess = await requireRole("MENTOR", "SUPERVISOR", "CHIEF_MENTOR", "SUPER_ADMIN");
+  const sess = await requirePermission("portfolio", "create");
   await prisma.growthRecord.create({
     data: {
       studentId: s(fd, "studentId"), category: s(fd, "category") as Prisma.GrowthRecordCreateInput["category"],
@@ -726,7 +746,7 @@ export async function addGrowthRecord(fd: FormData): Promise<Result> {
 }
 
 export async function deleteGrowthRecord(fd: FormData): Promise<Result> {
-  await requireRole("MENTOR", "SUPERVISOR", "CHIEF_MENTOR", "SUPER_ADMIN");
+  await requirePermission("portfolio", "delete");
   const id = s(fd, "id");
   if (!id) return { ok: false, error: "Missing growth record." };
   const rec = await prisma.growthRecord.findUnique({ where: { id } });
@@ -737,7 +757,7 @@ export async function deleteGrowthRecord(fd: FormData): Promise<Result> {
 }
 
 export async function addAchievement(fd: FormData): Promise<Result> {
-  const sess = await requireRole("MENTOR", "SUPERVISOR", "CHIEF_MENTOR", "SUPER_ADMIN");
+  const sess = await requirePermission("portfolio", "create");
   await prisma.achievement.create({
     data: { studentId: s(fd, "studentId"), title: s(fd, "title"), description: sn(fd, "description"), category: sn(fd, "category"), addedById: sess.userId },
   });
@@ -746,7 +766,7 @@ export async function addAchievement(fd: FormData): Promise<Result> {
 }
 
 export async function updateAchievement(fd: FormData): Promise<Result> {
-  await requireRole("MENTOR", "SUPERVISOR", "CHIEF_MENTOR", "SUPER_ADMIN");
+  await requirePermission("portfolio", "edit");
   const id = s(fd, "id");
   if (!id) return { ok: false, error: "Missing achievement." };
   const title = s(fd, "title");
@@ -759,7 +779,7 @@ export async function updateAchievement(fd: FormData): Promise<Result> {
 }
 
 export async function deleteAchievement(fd: FormData): Promise<Result> {
-  await requireRole("MENTOR", "SUPERVISOR", "CHIEF_MENTOR", "SUPER_ADMIN");
+  await requirePermission("portfolio", "delete");
   const id = s(fd, "id");
   if (!id) return { ok: false, error: "Missing achievement." };
   const a = await prisma.achievement.findUnique({ where: { id } });
@@ -770,7 +790,7 @@ export async function deleteAchievement(fd: FormData): Promise<Result> {
 }
 
 export async function addDocument(fd: FormData): Promise<Result> {
-  const sess = await requireSession();
+  const sess = await requirePermission("portfolio", "create");
 
   // Real file upload: if a file is attached, persist it to /public/uploads.
   let fileUrl = s(fd, "fileUrl");
@@ -800,7 +820,7 @@ export async function addDocument(fd: FormData): Promise<Result> {
 }
 
 export async function updateDocument(fd: FormData): Promise<Result> {
-  await requireSession();
+  await requirePermission("portfolio", "edit");
   const id = s(fd, "id");
   if (!id) return { ok: false, error: "Missing document." };
   const title = s(fd, "title");
@@ -813,7 +833,7 @@ export async function updateDocument(fd: FormData): Promise<Result> {
 }
 
 export async function deleteDocument(fd: FormData): Promise<Result> {
-  await requireSession();
+  await requirePermission("portfolio", "delete");
   const id = s(fd, "id");
   if (!id) return { ok: false, error: "Missing document." };
   const doc = await prisma.studentDocument.findUnique({ where: { id } });
@@ -830,8 +850,8 @@ export async function deleteDocument(fd: FormData): Promise<Result> {
 // ASSESSMENTS
 // ============================================================================
 export async function saveAssessmentTemplate(fd: FormData): Promise<Result> {
-  const sess = await requireRole("SUPER_ADMIN", "CHIEF_MENTOR");
   const id = sn(fd, "id");
+  const sess = await requirePermission("assessments", id ? "edit" : "create");
   const title = s(fd, "title");
   if (!title) return { ok: false, error: "Title is required." };
 
@@ -869,7 +889,7 @@ export async function saveAssessmentTemplate(fd: FormData): Promise<Result> {
 }
 
 export async function setTemplateActive(fd: FormData): Promise<Result> {
-  await requireRole("SUPER_ADMIN", "CHIEF_MENTOR");
+  await requirePermission("assessments", "edit");
   const id = s(fd, "id");
   await prisma.assessmentTemplate.update({ where: { id }, data: { isActive: s(fd, "isActive") === "true" } });
   touch("/admin/assessments");
@@ -877,7 +897,7 @@ export async function setTemplateActive(fd: FormData): Promise<Result> {
 }
 
 export async function deleteAssessmentTemplate(fd: FormData): Promise<Result> {
-  await requireRole("SUPER_ADMIN");
+  await requirePermission("assessments", "delete");
   const id = s(fd, "id");
   if (!id) return { ok: false, error: "Missing template." };
   const template = await prisma.assessmentTemplate.findUnique({
@@ -897,7 +917,7 @@ export async function deleteAssessmentTemplate(fd: FormData): Promise<Result> {
 }
 
 export async function assignAssessment(fd: FormData): Promise<Result> {
-  const sess = await requireRole("MENTOR", "SUPERVISOR", "CHIEF_MENTOR", "SUPER_ADMIN");
+  const sess = await requirePermission("assessments", "edit");
   const a = await prisma.studentAssessment.create({
     data: { studentId: s(fd, "studentId"), templateId: s(fd, "templateId"), assignedById: sess.userId },
   });
@@ -906,7 +926,7 @@ export async function assignAssessment(fd: FormData): Promise<Result> {
 }
 
 export async function submitAssessment(fd: FormData): Promise<Result> {
-  await requireSession();
+  await requirePermission("assessments", "edit");
   const id = s(fd, "id");
   const inst = await prisma.studentAssessment.findUnique({ where: { id }, include: { template: true } });
   if (!inst) return { ok: false, error: "Not found" };
@@ -1054,7 +1074,7 @@ export async function submitMentorApplication(fd: FormData): Promise<Result> {
 }
 
 export async function moveMentorToInterview(fd: FormData): Promise<Result> {
-  const sess = await requireRole("SUPER_ADMIN", "CHIEF_MENTOR");
+  const sess = await requirePermission("mentor_applications", "edit");
   const id = s(fd, "id");
   await prisma.mentorApplication.update({
     where: { id }, data: { status: "INTERVIEW", interviewNote: sn(fd, "interviewNote"), reviewedById: sess.userId },
@@ -1065,7 +1085,7 @@ export async function moveMentorToInterview(fd: FormData): Promise<Result> {
 }
 
 export async function approveMentorApplication(fd: FormData): Promise<Result> {
-  const sess = await requireRole("SUPER_ADMIN", "CHIEF_MENTOR");
+  const sess = await requirePermission("mentor_applications", "edit");
   const id = s(fd, "id");
   const app = await prisma.mentorApplication.findUnique({ where: { id } });
   if (!app) return { ok: false, error: "Application not found" };
@@ -1094,7 +1114,7 @@ export async function approveMentorApplication(fd: FormData): Promise<Result> {
 }
 
 export async function rejectMentorApplication(fd: FormData): Promise<Result> {
-  const sess = await requireRole("SUPER_ADMIN", "CHIEF_MENTOR");
+  const sess = await requirePermission("mentor_applications", "edit");
   const id = s(fd, "id");
   await prisma.mentorApplication.update({
     where: { id }, data: { status: "REJECTED", interviewNote: sn(fd, "interviewNote"), reviewedById: sess.userId },
@@ -1105,7 +1125,7 @@ export async function rejectMentorApplication(fd: FormData): Promise<Result> {
 }
 
 export async function deleteMentorApplication(fd: FormData): Promise<Result> {
-  await requireRole("SUPER_ADMIN", "CHIEF_MENTOR");
+  await requirePermission("mentor_applications", "delete");
   const id = s(fd, "id");
   if (!id) return { ok: false, error: "Missing application." };
   const app = await prisma.mentorApplication.findUnique({ where: { id }, select: { name: true } });
@@ -1120,7 +1140,7 @@ export async function deleteMentorApplication(fd: FormData): Promise<Result> {
 // MONTHLY MEETUP UPDATE — mentor logs how the mentee changed this month
 // ============================================================================
 export async function addMonthlyUpdate(fd: FormData): Promise<Result> {
-  const sess = await requireRole("MENTOR", "SUPERVISOR", "CHIEF_MENTOR", "SUPER_ADMIN");
+  const sess = await requirePermission("portfolio", "create");
   const studentId = s(fd, "studentId");
   if (!studentId) return { ok: false, error: "Missing student." };
   const summary = s(fd, "summary");
@@ -1147,12 +1167,114 @@ export async function addMonthlyUpdate(fd: FormData): Promise<Result> {
 // MENTOR ASSIGNMENT (matching) — assign a mentor to a student
 // ============================================================================
 export async function assignMentor(fd: FormData): Promise<Result> {
-  await requireRole("SUPER_ADMIN", "CHIEF_MENTOR", "SUPERVISOR");
+  await requirePermission("students", "edit");
   const studentId = s(fd, "studentId");
   const mentorId = sn(fd, "mentorId");
   if (!studentId) return { ok: false, error: "Missing student." };
   await prisma.student.update({ where: { id: studentId }, data: { mentorId } });
   await log("ASSIGN_MENTOR", "Student", studentId, { mentorId });
   touch(`/admin/students/${studentId}`, "/admin/students", "/mentor/mentees");
+  return { ok: true };
+}
+
+// ============================================================================
+// RBAC — Roles & Responsibilities (Super Admin only)
+// ============================================================================
+export async function saveAppRole(fd: FormData): Promise<Result> {
+  await requireSuperAdmin();
+  const id = sn(fd, "id");
+  const name = s(fd, "name");
+  if (!name) return { ok: false, error: "Role name is required." };
+
+  const dupe = await prisma.appRole.findUnique({ where: { name } });
+  if (dupe && dupe.id !== id) return { ok: false, error: "A role with this name already exists." };
+
+  if (id) {
+    const existing = await prisma.appRole.findUnique({ where: { id } });
+    if (!existing) return { ok: false, error: "Role not found." };
+    if (existing.isSystem) return { ok: false, error: "System roles cannot be renamed." };
+    await prisma.appRole.update({
+      where: { id },
+      data: { name, baseRole: s(fd, "baseRole") as Prisma.AppRoleUpdateInput["baseRole"] },
+    });
+    await log("UPDATE", "AppRole", id, { name });
+    touch("/admin/roles");
+    return { ok: true, id };
+  }
+
+  const baseRole = s(fd, "baseRole") as Role;
+  const role = await prisma.appRole.create({
+    data: {
+      name, baseRole, isSystem: false,
+      // start the matrix from the base role's defaults so it's editable from a sane baseline
+      permissions: {
+        create: RESOURCES.map((r) => ({
+          resource: r.key,
+          canCreate: DEFAULT_MATRIX[baseRole][r.key].create,
+          canView: DEFAULT_MATRIX[baseRole][r.key].view,
+          canEdit: DEFAULT_MATRIX[baseRole][r.key].edit,
+          canDelete: DEFAULT_MATRIX[baseRole][r.key].delete,
+        })),
+      },
+    },
+  });
+  await log("CREATE", "AppRole", role.id, { name, baseRole });
+  touch("/admin/roles");
+  return { ok: true, id: role.id };
+}
+
+export async function deleteAppRole(fd: FormData): Promise<Result> {
+  await requireSuperAdmin();
+  const id = s(fd, "id");
+  const role = await prisma.appRole.findUnique({
+    where: { id }, include: { _count: { select: { users: true } } },
+  });
+  if (!role) return { ok: false, error: "Role not found." };
+  if (role.isSystem) return { ok: false, error: "System roles cannot be deleted." };
+  await prisma.appRole.delete({ where: { id } }); // users fall back to their system role (appRoleId → null)
+  await log("DELETE", "AppRole", id, { name: role.name, usersDetached: role._count.users });
+  touch("/admin/roles", "/admin/users");
+  return { ok: true };
+}
+
+export async function saveRolePermissions(fd: FormData): Promise<Result> {
+  await requireSuperAdmin();
+  const roleId = s(fd, "roleId");
+  const role = await prisma.appRole.findUnique({ where: { id: roleId } });
+  if (!role) return { ok: false, error: "Role not found." };
+  if (role.isSystem && role.baseRole === "SUPER_ADMIN") {
+    return { ok: false, error: "Super Admin permissions are locked and cannot be edited." };
+  }
+
+  for (const r of RESOURCES) {
+    const data = {
+      canCreate: fd.get(`${r.key}.create`) === "on",
+      canView: fd.get(`${r.key}.view`) === "on",
+      canEdit: fd.get(`${r.key}.edit`) === "on",
+      canDelete: fd.get(`${r.key}.delete`) === "on",
+    };
+    await prisma.rolePermission.upsert({
+      where: { roleId_resource: { roleId, resource: r.key } },
+      create: { roleId, resource: r.key, ...data },
+      update: data,
+    });
+  }
+  await log("UPDATE", "RolePermissions", roleId, { role: role.name });
+  touch("/admin/roles");
+  return { ok: true };
+}
+
+export async function assignUserRole(fd: FormData): Promise<Result> {
+  const sess = await requireSuperAdmin();
+  const userId = s(fd, "userId");
+  const appRoleId = sn(fd, "appRoleId");
+  if (!userId) return { ok: false, error: "Missing user." };
+  if (userId === sess.userId) return { ok: false, error: "You cannot change your own permission role (lockout protection)." };
+  if (appRoleId && !(await prisma.appRole.findUnique({ where: { id: appRoleId } }))) {
+    return { ok: false, error: "Selected role does not exist." };
+  }
+  await prisma.user.update({ where: { id: userId }, data: { appRoleId } });
+  await log("ASSIGN_ROLE", "User", userId, { appRoleId });
+  touch("/admin/users", "/admin/roles");
   return { ok: true };
 }

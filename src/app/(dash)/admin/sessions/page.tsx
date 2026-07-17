@@ -1,6 +1,7 @@
 import type { Prisma, SessionType } from "@prisma/client";
 import { Pencil } from "lucide-react";
 import { prisma } from "@/lib/db";
+import { getPerms } from "@/lib/permissions";
 import { updateSession, deleteSession } from "@/lib/actions";
 import { PageHeader, Badge } from "@/components/ui/primitives";
 import { Panel } from "@/components/dash/widgets";
@@ -33,6 +34,7 @@ export default async function SessionsPage({
   const { tab, page: pageParam } = await searchParams;
   const view = tab ?? "upcoming";
   const page = Math.max(1, Number(pageParam) || 1);
+  const perms = await getPerms("sessions");
 
   let where: Prisma.MentoringSessionWhereInput = {};
   let orderBy: Prisma.MentoringSessionOrderByWithRelationInput = { scheduledAt: "desc" };
@@ -84,14 +86,17 @@ export default async function SessionsPage({
               header: "Actions",
               cell: (s) => (
                 <div className="flex items-center gap-1">
-                  <EditSessionModal session={s} />
-                  <ConfirmDeleteButton
-                    action={deleteSession}
-                    hiddenFields={{ id: s.id }}
-                    itemLabel={s.title}
-                    warning="This permanently removes the session and its attendance records. This cannot be undone."
-                    triggerClassName="btn-ghost text-xs text-red-600"
-                  />
+                  {perms.edit && <EditSessionModal session={s} />}
+                  {perms.delete && (
+                    <ConfirmDeleteButton
+                      action={deleteSession}
+                      hiddenFields={{ id: s.id }}
+                      itemLabel={s.title}
+                      warning="This permanently removes the session and its attendance records. This cannot be undone."
+                      triggerClassName="btn-ghost text-xs text-red-600"
+                    />
+                  )}
+                  {!perms.edit && !perms.delete && <span className="text-xs text-slate-300">—</span>}
                 </div>
               ),
             },

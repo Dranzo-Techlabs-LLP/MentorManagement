@@ -185,6 +185,37 @@ model Institution {
   announcements Announcement[]
 }
 
+// ----------------------------------------------------------------------------
+// RBAC — permission roles (matrix of resource → create/view/edit/delete).
+// The Role enum stays as the "workspace" (dashboard/nav); AppRole overlays
+// what CRUD operations that user may perform. System roles mirror the enum.
+// ----------------------------------------------------------------------------
+
+model AppRole {
+  id        String   @id @default(cuid())
+  name      String   @unique
+  baseRole  Role // workspace/dashboard this role inherits; also the fallback permission set
+  isSystem  Boolean  @default(false) // seeded system roles cannot be deleted
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  permissions RolePermission[]
+  users       User[]
+}
+
+model RolePermission {
+  id        String  @id @default(cuid())
+  role      AppRole @relation(fields: [roleId], references: [id], onDelete: Cascade)
+  roleId    String
+  resource  String // key from RESOURCES in src/lib/permission-data.ts
+  canCreate Boolean @default(false)
+  canView   Boolean @default(false)
+  canEdit   Boolean @default(false)
+  canDelete Boolean @default(false)
+
+  @@unique([roleId, resource])
+}
+
 model User {
   id           String     @id @default(cuid())
   name         String
@@ -212,6 +243,10 @@ model User {
   // reporting chain: mentor -> supervisor -> chief mentor
   manager   User?   @relation("Reports", fields: [managerId], references: [id], onDelete: SetNull)
   managerId String?
+
+  // RBAC permission role (null → system role matching the enum role)
+  appRole   AppRole? @relation(fields: [appRoleId], references: [id], onDelete: SetNull)
+  appRoleId String?
   reports   User[]  @relation("Reports")
 
   createdAt DateTime @default(now())

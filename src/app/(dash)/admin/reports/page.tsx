@@ -1,6 +1,7 @@
 import { CheckCircle2 } from "lucide-react";
 import type { Prisma, ReportStatus } from "@prisma/client";
 import { prisma } from "@/lib/db";
+import { getPerms } from "@/lib/permissions";
 import { reviewReport, deleteReport } from "@/lib/actions";
 import { PageHeader, Avatar } from "@/components/ui/primitives";
 import { Panel } from "@/components/dash/widgets";
@@ -36,6 +37,7 @@ export default async function ReportsPage({
   const status = TAB_STATUS[tab ?? "pending"];
   const where: Prisma.ProgressReportWhereInput = status ? { status } : {};
   const page = Math.max(1, Number(pageParam) || 1);
+  const perms = await getPerms("reports");
 
   const [reports, total] = await Promise.all([
     prisma.progressReport.findMany({
@@ -75,7 +77,7 @@ export default async function ReportsPage({
               header: "Actions",
               cell: (r) => (
                 <div className="flex items-center gap-1.5">
-                  {r.status === "PENDING" && (
+                  {r.status === "PENDING" && perms.edit && (
                     <ActionForm action={reviewReport} className="inline-flex">
                       <input type="hidden" name="id" value={r.id} />
                       <SubmitButton className="btn-green text-xs" pendingText="…">
@@ -83,12 +85,14 @@ export default async function ReportsPage({
                       </SubmitButton>
                     </ActionForm>
                   )}
-                  <ConfirmDeleteButton
-                    action={deleteReport}
-                    hiddenFields={{ id: r.id }}
-                    itemLabel={r.title}
-                    triggerClassName="btn-ghost text-xs text-red-600"
-                  />
+                  {perms.delete && (
+                    <ConfirmDeleteButton
+                      action={deleteReport}
+                      hiddenFields={{ id: r.id }}
+                      itemLabel={r.title}
+                      triggerClassName="btn-ghost text-xs text-red-600"
+                    />
+                  )}
                 </div>
               ),
             },

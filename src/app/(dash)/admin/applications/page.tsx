@@ -1,6 +1,7 @@
 import { CheckCircle2, XCircle } from "lucide-react";
 import type { Prisma, ApplicationStatus } from "@prisma/client";
 import { prisma } from "@/lib/db";
+import { getPerms } from "@/lib/permissions";
 import { approveApplication, rejectApplication, deleteApplication } from "@/lib/actions";
 import { PageHeader } from "@/components/ui/primitives";
 import { Panel } from "@/components/dash/widgets";
@@ -39,6 +40,7 @@ export default async function ApplicationsPage({
   const status = TAB_STATUS[tab ?? "pending"];
   const where: Prisma.ParentApplicationWhereInput = status ? { status } : {};
   const page = Math.max(1, Number(pageParam) || 1);
+  const perms = await getPerms("applications");
 
   const [applications, total, mentors, institutions] = await Promise.all([
     prisma.parentApplication.findMany({
@@ -88,19 +90,25 @@ export default async function ApplicationsPage({
               cell: (a) => (
                 <div className="flex items-center gap-1.5">
                   {a.status === "PENDING" ? (
-                    <>
-                      <ApproveModal id={a.id} studentName={a.studentName} mentors={mentors} institutions={institutions} />
-                      <RejectModal id={a.id} studentName={a.studentName} />
-                    </>
+                    perms.edit ? (
+                      <>
+                        <ApproveModal id={a.id} studentName={a.studentName} mentors={mentors} institutions={institutions} />
+                        <RejectModal id={a.id} studentName={a.studentName} />
+                      </>
+                    ) : (
+                      <span className="text-xs text-slate-400">Pending review</span>
+                    )
                   ) : (
                     <span className="text-xs text-slate-400">{a.reviewNote ? `Note: ${a.reviewNote}` : "Processed"}</span>
                   )}
-                  <ConfirmDeleteButton
-                    action={deleteApplication}
-                    hiddenFields={{ id: a.id }}
-                    itemLabel={`${a.studentName}'s application`}
-                    triggerClassName="btn-ghost text-xs text-red-600"
-                  />
+                  {perms.delete && (
+                    <ConfirmDeleteButton
+                      action={deleteApplication}
+                      hiddenFields={{ id: a.id }}
+                      itemLabel={`${a.studentName}'s application`}
+                      triggerClassName="btn-ghost text-xs text-red-600"
+                    />
+                  )}
                 </div>
               ),
             },

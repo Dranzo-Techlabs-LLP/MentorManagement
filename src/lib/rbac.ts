@@ -55,6 +55,7 @@ export const NAV: Record<Role, NavItem[]> = {
     { label: "Communication", href: "/admin/messages", icon: "MessageSquare" },
     { label: "Announcements", href: "/admin/announcements", icon: "Megaphone" },
     { label: "System Logs", href: "/admin/logs", icon: "ScrollText" },
+    { label: "Roles & Responsibilities", href: "/admin/roles", icon: "Shield" },
     { label: "Settings", href: "/admin/settings", icon: "Settings" },
   ],
   CHIEF_MENTOR: [

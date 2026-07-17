@@ -21,6 +21,7 @@ import {
 } from "lucide-react";
 import type { GrowthCategory } from "@prisma/client";
 import { prisma } from "@/lib/db";
+import { getPerms } from "@/lib/permissions";
 import {
   addGrowthRecord, deleteGrowthRecord, addAchievement, updateAchievement, deleteAchievement,
   createGoal, updateGoal, deleteGoal, addDocument, updateDocument, deleteDocument,
@@ -88,6 +89,7 @@ export default async function StudentProfilePage({
 
   if (!student) notFound();
 
+  const studentPerms = await getPerms("students");
   const [institutions, mentors, parents, mentorPool] = await Promise.all([
     prisma.institution.findMany({ orderBy: { name: "asc" }, select: { id: true, name: true } }),
     prisma.user.findMany({ where: { role: "MENTOR" }, orderBy: { name: "asc" }, select: { id: true, name: true } }),
@@ -164,14 +166,18 @@ export default async function StudentProfilePage({
         subtitle="Digital growth portfolio & program records"
         action={
           <div className="flex flex-wrap items-center gap-2">
-            <EditStudentModal student={student} institutions={institutions} mentors={mentors} parents={parents} />
-            <ConfirmDeleteButton
-              action={deleteStudent}
-              hiddenFields={{ id: student.id }}
-              itemLabel={student.fullName}
-              warning="This permanently removes the student and all of their growth records, reports, assessments, goals, tasks and documents. This cannot be undone."
-              triggerClassName="btn-outline text-red-600"
-            />
+            {studentPerms.edit && (
+              <EditStudentModal student={student} institutions={institutions} mentors={mentors} parents={parents} />
+            )}
+            {studentPerms.delete && (
+              <ConfirmDeleteButton
+                action={deleteStudent}
+                hiddenFields={{ id: student.id }}
+                itemLabel={student.fullName}
+                warning="This permanently removes the student and all of their growth records, reports, assessments, goals, tasks and documents. This cannot be undone."
+                triggerClassName="btn-outline text-red-600"
+              />
+            )}
           </div>
         }
       />

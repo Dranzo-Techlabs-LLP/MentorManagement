@@ -1,6 +1,7 @@
 import type { MentorAppStatus } from "@prisma/client";
 import { CalendarClock, X } from "lucide-react";
 import { prisma } from "@/lib/db";
+import { getPerms } from "@/lib/permissions";
 import { moveMentorToInterview, approveMentorApplication, rejectMentorApplication, deleteMentorApplication } from "@/lib/actions";
 import { PageHeader, Badge } from "@/components/ui/primitives";
 import { Panel } from "@/components/dash/widgets";
@@ -38,6 +39,7 @@ export default async function MentorApplicationsPage({
   const { tab, page: pageParam } = await searchParams;
   const status = (STATUSES.includes(tab as MentorAppStatus) ? tab : "APPLIED") as MentorAppStatus;
   const page = Math.max(1, Number(pageParam) || 1);
+  const perms = await getPerms("mentor_applications");
 
   const [apps, total] = await Promise.all([
     prisma.mentorApplication.findMany({
@@ -109,19 +111,21 @@ export default async function MentorApplicationsPage({
                 </div>
 
                 <div className="flex shrink-0 flex-wrap gap-2">
-                  {a.status !== "APPROVED" && a.status !== "REJECTED" && (
+                  {a.status !== "APPROVED" && a.status !== "REJECTED" && perms.edit && (
                     <>
                       {a.status === "APPLIED" && <InterviewModal id={a.id} />}
                       <ApproveForm id={a.id} />
                       <RejectModal id={a.id} />
                     </>
                   )}
-                  <ConfirmDeleteButton
-                    action={deleteMentorApplication}
-                    hiddenFields={{ id: a.id }}
-                    itemLabel={`${a.name}'s application`}
-                    triggerClassName="btn-ghost text-xs text-red-600"
-                  />
+                  {perms.delete && (
+                    <ConfirmDeleteButton
+                      action={deleteMentorApplication}
+                      hiddenFields={{ id: a.id }}
+                      itemLabel={`${a.name}'s application`}
+                      triggerClassName="btn-ghost text-xs text-red-600"
+                    />
+                  )}
                 </div>
               </div>
             </Panel>

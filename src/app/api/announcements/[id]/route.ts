@@ -1,12 +1,12 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
-import { requireRole } from "@/lib/guard";
+import { requirePermission } from "@/lib/permissions";
 import { apiError } from "@/lib/api-helpers";
 import type { Prisma } from "@prisma/client";
 
 export async function GET(_req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   try {
-    await requireRole("SUPER_ADMIN", "CHIEF_MENTOR", "SUPERVISOR");
+    await requirePermission("announcements", "view");
     const { id } = await params;
     const announcement = await prisma.announcement.findUnique({
       where: { id }, include: { author: { select: { id: true, name: true } } },
@@ -20,7 +20,7 @@ export async function GET(_req: NextRequest, { params }: { params: Promise<{ id:
 
 export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   try {
-    await requireRole("SUPER_ADMIN", "CHIEF_MENTOR", "SUPERVISOR");
+    await requirePermission("announcements", "edit");
     const { id } = await params;
     const existing = await prisma.announcement.findUnique({ where: { id } });
     if (!existing) return NextResponse.json({ ok: false, error: "Announcement not found." }, { status: 404 });
@@ -48,7 +48,7 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
 
 export async function DELETE(_req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   try {
-    await requireRole("SUPER_ADMIN", "CHIEF_MENTOR");
+    await requirePermission("announcements", "delete");
     const { id } = await params;
     const existing = await prisma.announcement.findUnique({ where: { id } });
     if (!existing) return NextResponse.json({ ok: false, error: "Announcement not found." }, { status: 404 });

@@ -20,6 +20,7 @@ import {
   Target,
   Trophy,
   UserCheck,
+  Shield,
   type LucideIcon,
 } from "lucide-react";
 
@@ -31,6 +32,7 @@ export const ICONS: Record<string, LucideIcon> = {
   Contact,
   ClipboardList,
   UserCheck,
+  Shield,
   Building2,
   FileBarChart,
   CalendarDays,

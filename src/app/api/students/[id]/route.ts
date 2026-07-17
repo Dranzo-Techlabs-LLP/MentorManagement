@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
 import { getSession } from "@/lib/auth";
-import { requireRole } from "@/lib/guard";
+import { requirePermission } from "@/lib/permissions";
 import { studentInputSchema, zodFieldError } from "@/lib/validation";
 import { apiError } from "@/lib/api-helpers";
 import { ageFromDob, ageCategory } from "@/lib/utils";
@@ -10,7 +10,7 @@ import type { AgeCategory as AgeCategoryType } from "@prisma/client";
 // GET /api/students/:id
 export async function GET(_req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   try {
-    await requireRole("SUPER_ADMIN", "CHIEF_MENTOR", "SUPERVISOR");
+    await requirePermission("students", "view");
     const { id } = await params;
     const student = await prisma.student.findUnique({
       where: { id },
@@ -30,7 +30,7 @@ export async function GET(_req: NextRequest, { params }: { params: Promise<{ id:
 // PUT /api/students/:id — full update. Also handles mentor assign/unassign via { mentorId }.
 export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   try {
-    await requireRole("SUPER_ADMIN", "CHIEF_MENTOR", "SUPERVISOR");
+    await requirePermission("students", "edit");
     const { id } = await params;
     const existing = await prisma.student.findUnique({ where: { id } });
     if (!existing) return NextResponse.json({ ok: false, error: "Student not found." }, { status: 404 });
@@ -93,7 +93,7 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
 // DELETE /api/students/:id
 export async function DELETE(_req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   try {
-    await requireRole("SUPER_ADMIN");
+    await requirePermission("students", "delete");
     const { id } = await params;
     const existing = await prisma.student.findUnique({ where: { id }, select: { id: true, fullName: true } });
     if (!existing) return NextResponse.json({ ok: false, error: "Student not found." }, { status: 404 });

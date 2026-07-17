@@ -1,8 +1,9 @@
 import Link from "next/link";
-import { Star, GraduationCap, Users, CalendarDays, UserPlus } from "lucide-react";
+import { Star, GraduationCap, Users, CalendarDays, UserPlus, Pencil } from "lucide-react";
 import type { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/db";
-import { saveUser } from "@/lib/actions";
+import { getPerms } from "@/lib/permissions";
+import { saveUser, deleteUser } from "@/lib/actions";
 import { PageHeader, StatCard, Avatar, Badge } from "@/components/ui/primitives";
 import { Panel } from "@/components/dash/widgets";
 import { DataTable } from "@/components/ui/DataTable";
@@ -10,6 +11,7 @@ import { SearchBar } from "@/components/ui/SearchBar";
 import { StatusBadge } from "@/components/ui/StatusBadge";
 import { Modal } from "@/components/ui/Modal";
 import { ActionForm } from "@/components/ui/ActionForm";
+import { ConfirmDeleteButton } from "@/components/ui/ConfirmDeleteButton";
 import { SubmitButton } from "@/components/ui/form";
 import { Pagination } from "@/components/ui/Pagination";
 import { MentorFormFields } from "./MentorFormFields";
@@ -23,6 +25,7 @@ export default async function MentorsPage({
 }) {
   const { q, page: pageParam } = await searchParams;
   const page = Math.max(1, Number(pageParam) || 1);
+  const perms = await getPerms("mentors");
 
   const where: Prisma.UserWhereInput = {
     role: "MENTOR",
@@ -69,7 +72,7 @@ export default async function MentorsPage({
         action={
           <div className="flex flex-wrap items-center gap-2">
             <SearchBar placeholder="Search mentors" />
-            <AddMentorModal institutions={institutions} supervisors={supervisors} />
+            {perms.create && <AddMentorModal institutions={institutions} supervisors={supervisors} />}
           </div>
         }
       />
@@ -135,6 +138,42 @@ export default async function MentorsPage({
                 },
               },
               { header: "Status", cell: (m) => <StatusBadge status={m.status} /> },
+              {
+                header: "Actions",
+                cell: (m) => (
+                  <div className="flex items-center gap-1">
+                    {perms.edit && (
+                      <Modal
+                        wide
+                        title="Edit Mentor"
+                        triggerClassName="btn-ghost text-xs"
+                        triggerLabel={<><Pencil className="h-3.5 w-3.5" /> Edit</>}
+                      >
+                        <ActionForm action={saveUser} className="space-y-4" successMessage="Mentor updated.">
+                          <MentorFormFields mentor={m} institutions={institutions} supervisors={supervisors} isCreate={false} />
+                          <div className="flex justify-end gap-2 pt-2">
+                            <SubmitButton>Save changes</SubmitButton>
+                          </div>
+                        </ActionForm>
+                      </Modal>
+                    )}
+                    {perms.delete && (
+                      <ConfirmDeleteButton
+                        action={deleteUser}
+                        hiddenFields={{ id: m.id }}
+                        itemLabel={m.name}
+                        warning={
+                          m._count.studentsAsMentor > 0
+                            ? `${m._count.studentsAsMentor} student(s) will be unassigned from this mentor. This is permanent.`
+                            : "This is permanent and cannot be undone."
+                        }
+                        triggerClassName="btn-ghost text-xs text-red-600"
+                      />
+                    )}
+                    {!perms.edit && !perms.delete && <span className="text-xs text-slate-300">—</span>}
+                  </div>
+                ),
+              },
             ]}
           />
           <Pagination page={page} pageSize={PAGE_SIZE} total={total} basePath="/admin/mentors" searchParams={{ q }} />

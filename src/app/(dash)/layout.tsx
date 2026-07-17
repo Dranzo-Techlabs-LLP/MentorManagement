@@ -2,6 +2,8 @@ import { redirect } from "next/navigation";
 import { getSession } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import { NAV, ROLE_LABEL, ROLE_THEME, SEARCH_TARGET } from "@/lib/rbac";
+import { getPermsForUser } from "@/lib/permissions";
+import { NAV_RESOURCE } from "@/lib/permission-data";
 import { Shell } from "@/components/shell/Shell";
 
 export default async function DashLayout({ children }: { children: React.ReactNode }) {
@@ -23,9 +25,16 @@ export default async function DashLayout({ children }: { children: React.ReactNo
 
   if (!user) redirect("/login");
 
+  // RBAC: hide sidebar sections the user's permission role cannot view.
+  const eff = await getPermsForUser(session.userId);
+  const nav = NAV[session.role].filter((item) => {
+    const resource = NAV_RESOURCE[item.href];
+    return !resource || eff.perms[resource].view;
+  });
+
   return (
     <Shell
-      nav={NAV[session.role]}
+      nav={nav}
       user={{
         name: user.name,
         email: user.email,

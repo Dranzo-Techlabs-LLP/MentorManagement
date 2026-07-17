@@ -1,12 +1,12 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
-import { requireRole } from "@/lib/guard";
+import { requirePermission } from "@/lib/permissions";
 import { apiError } from "@/lib/api-helpers";
 import type { Prisma } from "@prisma/client";
 
 export async function GET(_req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   try {
-    await requireRole("SUPER_ADMIN", "CHIEF_MENTOR", "SUPERVISOR", "MENTOR");
+    await requirePermission("sessions", "view");
     const { id } = await params;
     const session = await prisma.mentoringSession.findUnique({
       where: { id },
@@ -24,7 +24,7 @@ export async function GET(_req: NextRequest, { params }: { params: Promise<{ id:
 
 export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   try {
-    await requireRole("MENTOR", "SUPERVISOR", "CHIEF_MENTOR", "SUPER_ADMIN");
+    await requirePermission("sessions", "edit");
     const { id } = await params;
     const existing = await prisma.mentoringSession.findUnique({ where: { id } });
     if (!existing) return NextResponse.json({ ok: false, error: "Session not found." }, { status: 404 });
@@ -53,7 +53,7 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
 
 export async function DELETE(_req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   try {
-    await requireRole("SUPERVISOR", "CHIEF_MENTOR", "SUPER_ADMIN");
+    await requirePermission("sessions", "delete");
     const { id } = await params;
     const existing = await prisma.mentoringSession.findUnique({ where: { id } });
     if (!existing) return NextResponse.json({ ok: false, error: "Session not found." }, { status: 404 });

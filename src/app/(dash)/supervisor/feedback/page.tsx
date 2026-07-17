@@ -2,6 +2,7 @@ import { redirect } from "next/navigation";
 import { Star, CheckCircle2, MessageCircle } from "lucide-react";
 import { prisma } from "@/lib/db";
 import { getSession } from "@/lib/auth";
+import { getPerms } from "@/lib/permissions";
 import { markFeedbackReviewed, deleteFeedback } from "@/lib/actions";
 import { PageHeader, Avatar, EmptyState } from "@/components/ui/primitives";
 import { Panel } from "@/components/dash/widgets";
@@ -24,6 +25,7 @@ export default async function SupervisorFeedbackPage({
   if (!session) redirect("/login");
   const { page: pageParam } = await searchParams;
   const page = Math.max(1, Number(pageParam) || 1);
+  const perms = await getPerms("feedback");
 
   const mentorIds = (
     await prisma.user.findMany({
@@ -90,7 +92,7 @@ export default async function SupervisorFeedbackPage({
               <div className="mt-3 flex items-center justify-between">
                 <span className="text-xs text-slate-400">{timeAgo(f.createdAt)}</span>
                 <div className="flex items-center gap-1.5">
-                  {f.status === "NEW" && (
+                  {f.status === "NEW" && perms.edit && (
                     <ActionForm action={markFeedbackReviewed} className="inline-flex">
                       <input type="hidden" name="id" value={f.id} />
                       <SubmitButton className="btn-green text-xs" pendingText="…">
@@ -98,12 +100,14 @@ export default async function SupervisorFeedbackPage({
                       </SubmitButton>
                     </ActionForm>
                   )}
-                  <ConfirmDeleteButton
-                    action={deleteFeedback}
-                    hiddenFields={{ id: f.id }}
-                    itemLabel="this feedback"
-                    triggerClassName="btn-ghost text-xs text-red-600"
-                  />
+                  {perms.delete && (
+                    <ConfirmDeleteButton
+                      action={deleteFeedback}
+                      hiddenFields={{ id: f.id }}
+                      itemLabel="this feedback"
+                      triggerClassName="btn-ghost text-xs text-red-600"
+                    />
+                  )}
                 </div>
               </div>
             </div>

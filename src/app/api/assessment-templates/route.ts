@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
-import { requireRole } from "@/lib/guard";
+import { requirePermission } from "@/lib/permissions";
 import { apiError } from "@/lib/api-helpers";
 import type { Prisma } from "@prisma/client";
 
@@ -9,7 +9,7 @@ const DEFAULT_PAGE_SIZE = 20;
 // GET /api/assessment-templates?page=&pageSize=
 export async function GET(req: NextRequest) {
   try {
-    await requireRole("SUPER_ADMIN", "CHIEF_MENTOR", "SUPERVISOR", "MENTOR");
+    await requirePermission("assessments", "view");
     const { searchParams } = new URL(req.url);
     const page = Math.max(1, Number(searchParams.get("page")) || 1);
     const pageSize = Math.min(100, Math.max(1, Number(searchParams.get("pageSize")) || DEFAULT_PAGE_SIZE));
@@ -30,7 +30,7 @@ export async function GET(req: NextRequest) {
 // POST /api/assessment-templates
 export async function POST(req: NextRequest) {
   try {
-    const sess = await requireRole("SUPER_ADMIN", "CHIEF_MENTOR");
+    const sess = await requirePermission("assessments", "create");
     const body = await req.json().catch(() => null);
     if (!body || typeof body !== "object") return NextResponse.json({ ok: false, error: "Invalid JSON body." }, { status: 400 });
     if (!body.title) return NextResponse.json({ ok: false, error: "Title is required." }, { status: 422 });
