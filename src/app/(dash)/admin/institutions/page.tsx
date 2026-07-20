@@ -101,6 +101,7 @@ export default async function InstitutionsPage({
                           ? `${i._count.students} student(s) and ${i._count.users} staff account(s) are linked to this institution — they will just lose this affiliation, not be deleted. This is permanent.`
                           : "This is permanent and cannot be undone."
                       }
+                      successMessage="Institution deleted."
                       triggerClassName="btn-ghost text-xs text-red-600"
                     />
                   )}
@@ -118,7 +119,11 @@ export default async function InstitutionsPage({
 
 function InstitutionForm({ institution }: { institution?: Institution }) {
   return (
-    <ActionForm action={saveInstitution} className="space-y-4">
+    <ActionForm
+      action={saveInstitution}
+      className="space-y-4"
+      successMessage={institution ? "Institution updated." : "Institution created."}
+    >
       {institution && <input type="hidden" name="id" value={institution.id} />}
       <div className="grid gap-4 sm:grid-cols-2">
         <Field label="Name">

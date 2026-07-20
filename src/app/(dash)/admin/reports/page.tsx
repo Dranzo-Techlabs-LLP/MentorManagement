@@ -90,6 +90,7 @@ export default async function ReportsPage({
                       action={deleteReport}
                       hiddenFields={{ id: r.id }}
                       itemLabel={r.title}
+                      successMessage="Report deleted."
                       triggerClassName="btn-ghost text-xs text-red-600"
                     />
                   )}

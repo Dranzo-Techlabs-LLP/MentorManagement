@@ -106,6 +106,7 @@ export default async function ApplicationsPage({
                       action={deleteApplication}
                       hiddenFields={{ id: a.id }}
                       itemLabel={`${a.studentName}'s application`}
+                      successMessage="Application deleted."
                       triggerClassName="btn-ghost text-xs text-red-600"
                     />
                   )}

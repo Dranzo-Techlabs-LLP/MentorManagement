@@ -123,6 +123,7 @@ export default async function MentorApplicationsPage({
                       action={deleteMentorApplication}
                       hiddenFields={{ id: a.id }}
                       itemLabel={`${a.name}'s application`}
+                      successMessage="Application deleted."
                       triggerClassName="btn-ghost text-xs text-red-600"
                     />
                   )}

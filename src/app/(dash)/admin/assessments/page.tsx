@@ -141,6 +141,7 @@ export default async function AssessmentsPage() {
                             ? `${t._count.instances} student assessment(s) use this template and must be cleared first — deletion will be blocked until then.`
                             : "This is permanent and cannot be undone."
                         }
+                        successMessage="Template deleted."
                         triggerClassName="btn-ghost text-xs text-red-600"
                       />
                     )}

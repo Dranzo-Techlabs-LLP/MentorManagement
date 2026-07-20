@@ -167,6 +167,7 @@ export default async function MentorsPage({
                             ? `${m._count.studentsAsMentor} student(s) will be unassigned from this mentor. This is permanent.`
                             : "This is permanent and cannot be undone."
                         }
+                        successMessage="Mentor deleted."
                         triggerClassName="btn-ghost text-xs text-red-600"
                       />
                     )}

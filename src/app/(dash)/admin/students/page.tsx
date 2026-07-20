@@ -122,6 +122,7 @@ export default async function StudentsPage({
                       hiddenFields={{ id: s.id }}
                       itemLabel={s.fullName}
                       warning="This permanently removes the student and all of their growth records, reports, assessments, goals, tasks and documents."
+                      successMessage="Student deleted."
                       triggerClassName="btn-ghost text-xs text-red-600"
                     />
                   )}
@@ -153,7 +154,7 @@ function AddStudentModal({
       triggerClassName="btn-primary"
       triggerLabel={<><UserPlus className="h-4 w-4" /> Add Student</>}
     >
-      <ActionForm action={saveStudent} className="space-y-4">
+      <ActionForm action={saveStudent} className="space-y-4" successMessage="Student created.">
           <StudentFormFields institutions={institutions} mentors={mentors} parents={parents} />
           <div className="flex justify-end gap-2 pt-2">
             <SubmitButton>Create student</SubmitButton>

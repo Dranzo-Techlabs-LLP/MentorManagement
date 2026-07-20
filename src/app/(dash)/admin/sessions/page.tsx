@@ -93,6 +93,7 @@ export default async function SessionsPage({
                       hiddenFields={{ id: s.id }}
                       itemLabel={s.title}
                       warning="This permanently removes the session and its attendance records. This cannot be undone."
+                      successMessage="Session deleted."
                       triggerClassName="btn-ghost text-xs text-red-600"
                     />
                   )}

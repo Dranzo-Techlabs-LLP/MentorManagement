@@ -132,6 +132,7 @@ export default async function UsersPage({
                       hiddenFields={{ id: u.id }}
                       itemLabel={u.name}
                       warning="Deletion is blocked if this account has session or message history — deactivate instead in that case. Otherwise this is permanent."
+                      successMessage="User deleted."
                       triggerClassName="btn-ghost text-xs text-red-600"
                     />
                   )}
@@ -164,7 +165,7 @@ function UserModal({
       triggerClassName={user ? "btn-ghost text-xs" : "btn-primary"}
       triggerLabel={user ? <><Pencil className="h-3.5 w-3.5" /> Edit</> : <><UserPlus className="h-4 w-4" /> Add User</>}
     >
-      <ActionForm action={saveUser} className="space-y-4" successMessage={user ? "User updated." : undefined}>
+      <ActionForm action={saveUser} className="space-y-4" successMessage={user ? "User updated." : "User created."}>
           {user && <input type="hidden" name="id" value={user.id} />}
           <div className="grid gap-4 sm:grid-cols-2">
             <Field label="Full name">

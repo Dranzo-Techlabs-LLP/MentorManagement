@@ -87,6 +87,7 @@ export default async function AnnouncementsPage({
                       action={deleteAnnouncement}
                       hiddenFields={{ id: a.id }}
                       itemLabel={a.title}
+                      successMessage="Announcement deleted."
                       triggerClassName="btn-ghost text-xs text-red-600"
                     />
                   )}
@@ -111,7 +112,7 @@ function NewAnnouncementModal() {
       triggerClassName="btn-primary"
       triggerLabel={<><Plus className="h-4 w-4" /> New Announcement</>}
     >
-      <ActionForm action={createAnnouncement} className="space-y-4">
+      <ActionForm action={createAnnouncement} className="space-y-4" successMessage="Announcement published.">
           <Field label="Title">
             <input name="title" className="input" required placeholder="e.g. Annual Leadership Camp" />
           </Field>

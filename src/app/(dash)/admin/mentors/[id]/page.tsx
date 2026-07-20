@@ -40,7 +40,9 @@ export default async function MentorProfilePage({ params }: { params: Promise<{ 
     prisma.institution.findMany({ orderBy: { name: "asc" }, select: { id: true, name: true } }),
     prisma.user.findMany({ where: { role: { in: ["SUPERVISOR", "CHIEF_MENTOR"] } }, orderBy: { name: "asc" }, select: { id: true, name: true } }),
     prisma.student.findMany({
-      where: { mentorId: { not: id } },
+      // SQL's `<>` never matches NULL, so `mentorId: { not: id }` alone would silently
+      // exclude every unassigned student — include `mentorId: null` explicitly.
+      where: { OR: [{ mentorId: null }, { mentorId: { not: id } }] },
       orderBy: { fullName: "asc" },
       select: { id: true, fullName: true, mentor: { select: { name: true } } },
     }),
@@ -90,6 +92,7 @@ export default async function MentorProfilePage({ params }: { params: Promise<{ 
                     ? `This mentor has ${mentor._count.studentsAsMentor} student(s) assigned — they will be unassigned. This is permanent and cannot be undone.`
                     : "This is permanent and cannot be undone."
                 }
+                successMessage="Mentor deleted."
                 triggerClassName="btn-outline text-red-600"
               />
             )}
@@ -137,7 +140,7 @@ export default async function MentorProfilePage({ params }: { params: Promise<{ 
                   <div className="flex shrink-0 items-center gap-3">
                     <StatusBadge status={st.status} />
                     {studentPerms.edit && (
-                      <ActionForm action={assignMentor} className="inline-flex">
+                      <ActionForm action={assignMentor} className="inline-flex" successMessage="Student unassigned.">
                         <input type="hidden" name="studentId" value={st.id} />
                         <input type="hidden" name="mentorId" value="" />
                         <SubmitButton className="btn-ghost text-xs text-red-600" pendingText="…">

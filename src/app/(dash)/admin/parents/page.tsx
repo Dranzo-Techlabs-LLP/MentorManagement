@@ -113,6 +113,7 @@ export default async function ParentsPage({
                           ? `${p.studentsAsParent.length} enrolled child(ren) are linked to this account — they will lose the parent link but stay enrolled. This is permanent.`
                           : "This is permanent and cannot be undone."
                       }
+                      successMessage="Parent deleted."
                       triggerClassName="btn-ghost text-xs text-red-600"
                     />
                   )}

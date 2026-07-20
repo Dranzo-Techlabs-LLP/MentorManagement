@@ -147,6 +147,7 @@ function MessageRow({
                   action={deleteMessage}
                   hiddenFields={{ id }}
                   itemLabel="this message"
+                  successMessage="Message deleted."
                   triggerClassName="btn-ghost px-1.5 py-1 text-red-500"
                   triggerLabel={<Trash2 className="h-3.5 w-3.5" />}
                 />

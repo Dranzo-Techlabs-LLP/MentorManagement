@@ -175,6 +175,7 @@ export default async function StudentProfilePage({
                 hiddenFields={{ id: student.id }}
                 itemLabel={student.fullName}
                 warning="This permanently removes the student and all of their growth records, reports, assessments, goals, tasks and documents. This cannot be undone."
+                successMessage="Student deleted."
                 triggerClassName="btn-outline text-red-600"
               />
             )}
@@ -538,6 +539,7 @@ function PortfolioTab({
                           action={deleteGoal}
                           hiddenFields={{ id: g.id }}
                           itemLabel={g.title}
+                          successMessage="Goal deleted."
                           triggerClassName="btn-ghost px-1.5 py-1 text-xs text-red-600"
                           triggerLabel={<Trash2 className="h-3.5 w-3.5" />}
                         />
@@ -575,6 +577,7 @@ function PortfolioTab({
                           action={deleteAchievement}
                           hiddenFields={{ id: a.id }}
                           itemLabel={a.title}
+                          successMessage="Achievement deleted."
                           triggerClassName="btn-ghost px-1.5 py-1 text-xs text-red-600"
                           triggerLabel={<Trash2 className="h-3.5 w-3.5" />}
                         />
@@ -630,6 +633,7 @@ function PortfolioTab({
                               action={deleteGrowthRecord}
                               hiddenFields={{ id: r.id }}
                               itemLabel={r.title}
+                              successMessage="Growth record deleted."
                               triggerClassName="btn-ghost px-1.5 py-1 text-xs text-red-600"
                               triggerLabel={<Trash2 className="h-3.5 w-3.5" />}
                             />
@@ -827,6 +831,7 @@ function DocumentsTab({
                   action={deleteDocument}
                   hiddenFields={{ id: d.id }}
                   itemLabel={d.title}
+                  successMessage="Document deleted."
                   triggerClassName="btn-ghost text-xs text-red-600"
                 />
               </div>
