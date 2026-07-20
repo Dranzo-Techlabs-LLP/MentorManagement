@@ -2,11 +2,15 @@ import { redirect } from "next/navigation";
 import type { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/db";
 import { getSession } from "@/lib/auth";
+import { getPerms } from "@/lib/permissions";
+import { deleteSession } from "@/lib/actions";
 import { PageHeader, Badge } from "@/components/ui/primitives";
 import { Panel } from "@/components/dash/widgets";
 import { DataTable } from "@/components/ui/DataTable";
 import { TabLinks } from "@/components/ui/Tabs";
 import { StatusBadge } from "@/components/ui/StatusBadge";
+import { ConfirmDeleteButton } from "@/components/ui/ConfirmDeleteButton";
+import { EditSessionModal } from "../../admin/sessions/page";
 import { fmtDateTime, titleCase } from "@/lib/utils";
 
 const TABS = [
@@ -25,6 +29,7 @@ export default async function SupervisorSessionsPage({
   if (!session) redirect("/login");
   const { tab } = await searchParams;
   const view = tab ?? "upcoming";
+  const perms = await getPerms("sessions");
 
   const mentorIds = (
     await prisma.user.findMany({
@@ -80,6 +85,25 @@ export default async function SupervisorSessionsPage({
               cell: (s) => <span className="font-medium text-slate-600">{s._count.attendance}</span>,
             },
             { header: "Status", cell: (s) => <StatusBadge status={s.status} /> },
+            {
+              header: "Actions",
+              cell: (s) => (
+                <div className="flex items-center gap-1">
+                  {perms.edit && <EditSessionModal session={s} />}
+                  {perms.delete && (
+                    <ConfirmDeleteButton
+                      action={deleteSession}
+                      hiddenFields={{ id: s.id }}
+                      itemLabel={s.title}
+                      warning="This permanently removes the session and its attendance records. This cannot be undone."
+                      successMessage="Session deleted."
+                      triggerClassName="btn-ghost text-xs text-red-600"
+                    />
+                  )}
+                  {!perms.edit && !perms.delete && <span className="text-xs text-slate-300">—</span>}
+                </div>
+              ),
+            },
           ]}
         />
       </Panel>

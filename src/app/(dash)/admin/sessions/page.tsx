@@ -109,7 +109,7 @@ export default async function SessionsPage({
   );
 }
 
-function EditSessionModal({
+export function EditSessionModal({
   session,
 }: {
   session: {

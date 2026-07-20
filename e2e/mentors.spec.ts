@@ -163,7 +163,11 @@ test("edits a mentor: name, title and city persist after reload", async ({ page 
 });
 
 test("mentor profile page: assigning and unassigning a student reflects and persists", async ({ page }) => {
-  test.setTimeout(60_000); // several full page navigations across two entities
+  // Several full page navigations across two entities — the steady-state run
+  // is well under 15s, but the first hit on a cold `next dev` route can add
+  // a one-time compile tax (irrelevant in production, where routes are
+  // pre-built by `next build`), so this gets extra margin over the default.
+  test.setTimeout(90_000);
   const mentorName = uniqueName("mentor-");
   const studentName = uniqueName("student-");
   try {
