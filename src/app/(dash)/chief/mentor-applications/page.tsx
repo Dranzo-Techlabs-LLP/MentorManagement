@@ -6,5 +6,5 @@ export default async function MentorApplicationsPage({
   searchParams: Promise<{ tab?: string; page?: string }>;
 }) {
   const { tab, page } = await searchParams;
-  return <MentorApplicationsView basePath="/admin/mentor-applications" page={Math.max(1, Number(page) || 1)} tab={tab} />;
+  return <MentorApplicationsView basePath="/chief/mentor-applications" page={Math.max(1, Number(page) || 1)} tab={tab} />;
 }

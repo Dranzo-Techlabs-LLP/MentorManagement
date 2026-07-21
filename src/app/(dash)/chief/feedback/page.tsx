@@ -6,5 +6,5 @@ export default async function FeedbackPage({
   searchParams: Promise<{ page?: string }>;
 }) {
   const { page } = await searchParams;
-  return <FeedbackView basePath="/supervisor/feedback" page={Math.max(1, Number(page) || 1)} />;
+  return <FeedbackView basePath="/chief/feedback" page={Math.max(1, Number(page) || 1)} />;
 }

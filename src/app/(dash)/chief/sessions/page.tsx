@@ -6,5 +6,5 @@ export default async function SessionsPage({
   searchParams: Promise<{ tab?: string; page?: string }>;
 }) {
   const { tab, page } = await searchParams;
-  return <SessionsView basePath="/supervisor/sessions" page={Math.max(1, Number(page) || 1)} tab={tab} />;
+  return <SessionsView basePath="/chief/sessions" page={Math.max(1, Number(page) || 1)} tab={tab} />;
 }

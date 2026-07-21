@@ -13,6 +13,15 @@ function mentorRow(page: Page, name: string) {
   return tableRow(page, name);
 }
 
+/**
+ * Both lists paginate at 10 rows, so never navigate to the bare list and hope
+ * the record is on page 1 — always filter by the record's unique name first.
+ * (Skipping this made the assign/unassign test fail once enough rows existed
+ * to push the freshly-created mentor onto page 2.)
+ */
+const mentorsFiltered = (name: string) => `/admin/mentors?q=${encodeURIComponent(name)}`;
+const studentsFiltered = (name: string) => `/admin/students?q=${encodeURIComponent(name)}`;
+
 async function createMentor(page: Page, name: string, email: string) {
   await page.getByRole("button", { name: "Add Mentor", exact: true }).click();
   const dialog = page.getByRole("dialog");
@@ -25,7 +34,7 @@ async function createMentor(page: Page, name: string, email: string) {
 }
 
 async function deleteMentorIfExists(page: Page, name: string) {
-  await page.goto("/admin/mentors");
+  await page.goto(mentorsFiltered(name));
   const row = mentorRow(page, name);
   if ((await row.count()) === 0) return;
   await confirmDelete(page, row.getByRole("button", { name: /^delete$/i }));
@@ -43,7 +52,7 @@ async function createStudent(page: Page, name: string) {
 }
 
 async function deleteStudentIfExists(page: Page, name: string) {
-  await page.goto("/admin/students");
+  await page.goto(studentsFiltered(name));
   const row = tableRow(page, name);
   if ((await row.count()) === 0) return;
   await confirmDelete(page, row.getByRole("button", { name: /^delete$/i }));
@@ -52,19 +61,15 @@ async function deleteStudentIfExists(page: Page, name: string) {
 test.afterAll(async ({ browser }) => {
   const page = await browser.newPage();
   try {
-    await page.goto("/admin/mentors");
-    const leftoverMentors = page.getByRole("row", { name: new RegExp(`^${E2E_PREFIX}`) });
-    for (let i = await leftoverMentors.count(); i > 0; i--) {
-      const row = leftoverMentors.first();
-      if ((await row.count()) === 0) break;
-      await confirmDelete(page, row.getByRole("button", { name: /^delete$/i }));
-    }
-    await page.goto("/admin/students");
-    const leftoverStudents = page.getByRole("row", { name: new RegExp(`^${E2E_PREFIX}`) });
-    for (let i = await leftoverStudents.count(); i > 0; i--) {
-      const row = leftoverStudents.first();
-      if ((await row.count()) === 0) break;
-      await confirmDelete(page, row.getByRole("button", { name: /^delete$/i }));
+    // Filter by the E2E prefix so the sweep can't miss leftovers sitting on
+    // page 2+ of a paginated list.
+    for (const base of ["/admin/mentors", "/admin/students"]) {
+      for (let guard = 0; guard < 25; guard++) {
+        await page.goto(`${base}?q=${encodeURIComponent(E2E_PREFIX)}`);
+        const row = page.getByRole("row", { name: new RegExp(`^${E2E_PREFIX}`) }).first();
+        if ((await row.count()) === 0) break;
+        await confirmDelete(page, row.getByRole("button", { name: /^delete$/i }));
+      }
     }
   } catch {
     // best-effort cleanup — never fail the run here
@@ -174,7 +179,7 @@ test("mentor profile page: assigning and unassigning a student reflects and pers
     await createMentor(page, mentorName, uniqueEmail("mentor"));
     await createStudent(page, studentName);
 
-    await page.goto("/admin/mentors");
+    await page.goto(mentorsFiltered(mentorName));
     await mentorRow(page, mentorName).locator("a").first().click();
     await page.waitForURL(/\/admin\/mentors\/[^/]+$/);
     await expect(page.getByRole("heading", { name: "Mentor Profile", exact: true })).toBeVisible();

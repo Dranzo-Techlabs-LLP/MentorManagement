@@ -6,5 +6,5 @@ export default async function ParentsPage({
   searchParams: Promise<{ q?: string; page?: string }>;
 }) {
   const { q, page } = await searchParams;
-  return <ParentsView basePath="/admin/parents" page={Math.max(1, Number(page) || 1)} q={q} />;
+  return <ParentsView basePath="/chief/parents" page={Math.max(1, Number(page) || 1)} q={q} />;
 }

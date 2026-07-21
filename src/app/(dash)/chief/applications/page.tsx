@@ -6,5 +6,5 @@ export default async function ApplicationsPage({
   searchParams: Promise<{ tab?: string; page?: string }>;
 }) {
   const { tab, page } = await searchParams;
-  return <ApplicationsView basePath="/admin/applications" page={Math.max(1, Number(page) || 1)} tab={tab} />;
+  return <ApplicationsView basePath="/chief/applications" page={Math.max(1, Number(page) || 1)} tab={tab} />;
 }

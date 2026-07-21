@@ -6,5 +6,5 @@ export default async function AnnouncementsPage({
   searchParams: Promise<{ page?: string }>;
 }) {
   const { page } = await searchParams;
-  return <AnnouncementsView basePath="/admin/announcements" page={Math.max(1, Number(page) || 1)} />;
+  return <AnnouncementsView basePath="/mentor/announcements" page={Math.max(1, Number(page) || 1)} />;
 }
